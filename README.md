@@ -3,7 +3,7 @@
 [![test](https://github.com/takato-y/gas-approval-workflow/actions/workflows/test.yml/badge.svg)](https://github.com/takato-y/gas-approval-workflow/actions/workflows/test.yml)
 
 - GitHub Actions で検査している範囲：型検査と自動テスト（node --test。GAS の機能は代替部品（モック）に差し替えて再現）
-- 手元の環境でのみ確かめた範囲：なし。Google 環境（スプレッドシート・フォーム・ウェブアプリ・トリガー・メール送信）での動作は未実施（テスト仕様書 3 章）
+- 手元の環境でのみ確認した範囲：なし。Google 環境（スプレッドシート・フォーム・ウェブアプリ・トリガー・メール送信）での動作は未実施（テスト仕様書 3 章）
 
 本リポジトリはポートフォリオ（閲覧用）です。無断での再利用・再配布はご遠慮ください。
 

@@ -186,6 +186,24 @@ function revokeActiveTokens_(requestId: string): number {
   return count;
 }
 
+/**
+ * 指定したトークンが「有効」なら「失効」にする（送れなかったリンクを残さないため）。
+ * 使用済み・失効済みの行は変えない。
+ * @return 失効させたら true
+ */
+function revokeToken_(tokenId: string): boolean {
+  const sheet = getSheet_(SHEET.TOKENS);
+  const body = readBody_(SHEET.TOKENS);
+  for (let i = 0; i < body.length; i++) {
+    if (String(body[i][TOKEN_COL.ID]) === tokenId) {
+      if (body[i][TOKEN_COL.STATUS] !== TOKEN_STATUS.ACTIVE) return false;
+      sheet.getRange(i + 2, TOKEN_COL.STATUS + 1).setValue(TOKEN_STATUS.REVOKED);
+      return true;
+    }
+  }
+  return false;
+}
+
 /** 監査ログに1行追記する。既存行は書き換えない */
 function appendAudit_(entry: { at: Date; requestId: string; operation: string; actor: string; result: string; detail: string }): void {
   getSheet_(SHEET.AUDIT).appendRow([

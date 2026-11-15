@@ -77,10 +77,12 @@ test('TC-036 確認画面: リンクを開いただけでは状態を変えず�
   assert.ok(!html.includes('<script>alert(1)'));
   assert.equal(env.requests()[0][COL.STATUS], '承認待ち');
   assert.equal(env.tokens()[0][TOKEN_STATUS_COL], '有効');
-  // doGet（公開関数）経由でも同じ画面になる
+  // doGet（公開関数）経由でも同じ画面になる。スマートフォン表示用の viewport を付ける
   env.user.active = 'manager@example.com';
   const out = env.ctx.doGet({ parameter: { t: token } });
   assert.equal(out.title, '申請の承認');
+  assert.match(out.meta.viewport, /width=device-width/);
+  assert.match(out.getContent(), /data-nonce="\d{13}\.[A-Za-z0-9_=-]+"/);
 });
 
 test('TC-037 承認（1段）: 承認済みにしてトークンを使用済みにし、申請者に通知する', () => {

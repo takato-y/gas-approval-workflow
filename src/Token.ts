@@ -115,6 +115,37 @@ function checkTokenRecord_(record: TokenRecord | null | undefined, claims: Token
   if (!Number.isFinite(expiresAt) || nowMs >= expiresAt) throw approvalError_('TOKEN_EXPIRED', 'トークンの有効期限が切れています');
 }
 
+/** 確認画面の有効時間（画面を開いてから確定までの猶予） */
+const CONFIRM_TTL_MS = 15 * 60 * 1000;
+
+/** 確認用の値の署名対象。トークンの署名と混同しないよう先頭に用途を付ける */
+function confirmMessage_(tokenId: string, actor: string, exp: number): string {
+  return 'confirm|' + tokenId + '|' + normalizeEmail_(actor) + '|' + exp;
+}
+
+/**
+ * 確認画面を表示するたびに作る確認用の値（CSRF 対策）。
+ * トークンID・画面を開いた本人・期限に署名したもので、サーバーには保存しない。
+ * 確定の操作では、この値が「同じ本人が、確認画面を開いてから15分以内に送ったもの」かを確かめる。
+ */
+function createConfirmNonce_(tokenId: string, actor: string, nowMs: number, secret: unknown, cryptoAdapter: CryptoAdapter): string {
+  assertSecret_(secret);
+  const exp = nowMs + CONFIRM_TTL_MS;
+  return exp + '.' + cryptoAdapter.hmac(confirmMessage_(tokenId, actor, exp), secret);
+}
+
+/** 確認用の値を検証する */
+function verifyConfirmNonce_(nonce: unknown, tokenId: string, actor: string, nowMs: number, secret: unknown, cryptoAdapter: CryptoAdapter): void {
+  assertSecret_(secret);
+  const m = typeof nonce === 'string' && nonce.length <= 128 ? /^(\d{13})\.([A-Za-z0-9_=-]+)$/.exec(nonce) : null;
+  if (!m) throw approvalError_('CONFIRM_INVALID', '確認用の値が不正です');
+  const exp = Number(m[1]);
+  if (!timingSafeEqual_(cryptoAdapter.hmac(confirmMessage_(tokenId, actor, exp), secret), m[2])) {
+    throw approvalError_('CONFIRM_INVALID', '確認用の値が一致しません');
+  }
+  if (nowMs >= exp) throw approvalError_('CONFIRM_EXPIRED', '確認画面の有効時間を過ぎています');
+}
+
 /**
  * 操作している人が、トークンを割り当てた承認者本人かを確かめる。
  * メールアドレスを取得できない場合は拒否する（確認できないものは通さない）。

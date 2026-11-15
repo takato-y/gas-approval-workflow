@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <!--
+    Approval.html
+    承認・却下の確認画面（HtmlService のテンプレート）。
+    - 開いただけでは状態を変えない。操作は「承認する／却下する」→「確定する」の2段階。
+    - 値の埋め込みは印字スクリプトレットのみ（GAS が文脈に応じてエスケープする）。
+    - トークンと確認用の値は data 属性に入れ、画面側のスクリプトから読む。
+  -->
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --surface: #ffffff;
+      --text: #1f2933;
+      --muted: #52606d;
+      --border: #cbd2d9;
+      --head: #eef2f6;
+      --primary: #1d5fbf;
+      --primary-text: #ffffff;
+      --danger: #b42318;
+      --danger-text: #ffffff;
+      --ok: #1e7b34;
+      --ng: #b42318;
+      --focus: #f0b429;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+      line-height: 1.7;
+    }
+    main {
+      max-width: 680px;
+      margin: 24px auto;
+      padding: 24px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    .lead { color: var(--muted); margin: 0 0 16px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    th { width: 32%; background: var(--head); font-weight: 600; }
+    td.amount { font-weight: 700; font-size: 1.1rem; }
+    label { display: block; font-weight: 600; margin-bottom: 4px; }
+    textarea {
+      width: 100%;
+      min-height: 88px;
+      padding: 8px;
+      font: inherit;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .actions, .confirm-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+    button {
+      min-height: 44px;
+      min-width: 140px;
+      padding: 10px 20px;
+      font: inherit;
+      font-weight: 700;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+    button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .primary { background: var(--primary); color: var(--primary-text); }
+    .danger { background: var(--danger); color: var(--danger-text); }
+    .secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+    .confirm {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border: 2px solid var(--primary);
+      border-radius: 8px;
+      background: var(--head);
+    }
+    .confirm.is-reject { border-color: var(--danger); }
+    #result { margin-top: 16px; font-weight: 700; min-height: 1.7em; }
+    #result.is-ok { color: var(--ok); }
+    #result.is-ng { color: var(--ng); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main id="app" data-token="<?= view.token ?>" data-nonce="<?= view.nonce ?>" data-request-id="<?= view.id ?>">
+    <h1>申請の承認</h1>
+    <p class="lead">内容を確認し、「承認する」または「却下する」を押してください。押したあとに確認が表示されます。</p>
+
+    <table>
+      <tr><th scope="row">申請ID</th><td><?= view.id ?></td></tr>
+      <tr><th scope="row">申請者</th><td><?= view.applicant ?></td></tr>
+      <tr><th scope="row">部署</th><td><?= view.department ?></td></tr>
+      <tr><th scope="row">申請区分</th><td><?= view.category ?></td></tr>
+      <tr><th scope="row">品目・内容</th><td><?= view.item ?></td></tr>
+      <tr><th scope="row">金額</th><td class="amount"><?= view.amountText ?></td></tr>
+      <tr><th scope="row">理由</th><td><?= view.reason ?></td></tr>
+      <tr><th scope="row">承認段階</th><td><?= view.stepText ?></td></tr>
+    </table>
+
+    <label for="comment">コメント（却下の場合は必須）</label>
+    <textarea id="comment" maxlength="<?= view.commentMax ?>"></textarea>
+
+    <div class="actions" id="actions">
+      <button type="button" class="primary" id="approve">承認する</button>
+      <button type="button" class="danger" id="reject">却下する</button>
+    </div>
+
+    <section class="confirm" id="confirm" hidden aria-labelledby="confirm-text">
+      <p id="confirm-text"></p>
+      <div class="confirm-actions">
+        <button type="button" class="primary" id="confirm-yes">確定する</button>
+        <button type="button" class="secondary" id="confirm-no">戻る</button>
+      </div>
+    </section>
+
+    <p id="result" role="status" aria-live="polite"></p>
+  </main>
+
+  <script>
+    (function () {
+      'use strict';
+      var app = document.getElementById('app');
+      var token = app.dataset.token;
+      var nonce = app.dataset.nonce;
+      var requestId = app.dataset.requestId;
+      var comment = document.getElementById('comment');
+      var actions = document.getElementById('actions');
+      var confirmBox = document.getElementById('confirm');
+      var confirmText = document.getElementById('confirm-text');
+      var confirmYes = document.getElementById('confirm-yes');
+      var result = document.getElementById('result');
+      var pending = null; // 'approve' または 'reject'
+
+      function showResult(text, ok) {
+        result.textContent = text;
+        result.className = ok ? 'is-ok' : 'is-ng';
+      }
+
+      function setBusy(busy) {
+        var buttons = document.querySelectorAll('button');
+        for (var i = 0; i < buttons.length; i++) buttons[i].disabled = busy;
+        comment.disabled = busy;
+      }
+
+      // 1回目の操作: 確認を表示するだけで、サーバーには送らない
+      function ask(decision) {
+        if (decision === 'reject' && comment.value.trim() === '') {
+          showResult('却下の理由をコメントに入力してください。', false);
+          comment.focus();
+          return;
+        }
+        pending = decision;
+        confirmText.textContent = '申請 ' + requestId + ' を' + (decision === 'approve' ? '承認' : '却下') +
+          'します。確定すると取り消せません。よろしいですか。';
+        confirmBox.classList.toggle('is-reject', decision === 'reject');
+        confirmBox.hidden = false;
+        actions.hidden = true;
+        showResult('', true);
+        confirmYes.focus();
+      }
+
+      function cancel() {
+        pending = null;
+        confirmBox.hidden = true;
+        actions.hidden = false;
+      }
+
+      // 2回目の操作: サーバーで トークン・確認用の値・本人・状態 を検証して確定する
+      function commit() {
+        if (!pending) return;
+        if (typeof google === 'undefined' || !google.script || !google.script.run) {
+          showResult('この画面は Google のウェブアプリとして開いたときだけ操作できます。', false);
+          return;
+        }
+        setBusy(true);
+        showResult('処理しています…', true);
+        google.script.run
+          .withSuccessHandler(function (r) {
+            confirmBox.hidden = true;
+            showResult(r.message, r.ok);
+            if (!r.ok) { setBusy(false); actions.hidden = false; }
+          })
+          .withFailureHandler(function () {
+            setBusy(false);
+            cancel();
+            showResult('処理できませんでした。時間をおいてメールのリンクから開き直してください。', false);
+          })
+          .submitDecision(token, nonce, pending, comment.value);
+      }
+
+      document.getElementById('approve').addEventListener('click', function () { ask('approve'); });
+      document.getElementById('reject').addEventListener('click', function () { ask('reject'); });
+      document.getElementById('confirm-no').addEventListener('click', cancel);
+      confirmYes.addEventListener('click', commit);
+    })();
+  </script>
+</body>
+</html>

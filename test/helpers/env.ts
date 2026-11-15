@@ -51,7 +51,8 @@ export interface Env {
   submitForm(values: f.Cell[], now: Date): string | null;
   tokenFor(to: string): string;
   openAs(email: string, token: string, now: Date): string;
-  decideAs(email: string, token: string, decision: string, comment: string, now: Date): { ok: boolean; message: string };
+  pageNonce(email: string, token: string, now: Date): string;
+  decideAs(email: string, token: string, decision: string, comment: string, now: Date, nonce?: string): { ok: boolean; message: string };
 }
 
 export function createEnv(opt: EnvOptions = {}): Env {
@@ -110,12 +111,18 @@ export function createEnv(opt: EnvOptions = {}): Env {
     /** 指定した利用者として確認画面を開く */
     openAs(email, token, now) {
       user.active = email;
-      return gas.ctx.renderDecisionView_(token, email, now);
+      return gas.ctx.renderDecisionView_(token, email, now).getContent();
     },
-    /** 指定した利用者としてボタンを押す */
-    decideAs(email, token, decision, comment, now) {
+    /** その利用者が確認画面を開いたときに作られる確認用の値（画面を開けない利用者の分も作れる） */
+    pageNonce(email, token, now) {
+      const tid = JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString('utf8')).tid;
+      return gas.ctx.createConfirmNonce_(tid, email, now.getTime(), props.store.get('APPROVAL_HMAC_SECRET'), gas.ctx.gasCryptoAdapter_());
+    },
+    /** 指定した利用者として「確定する」を押す。nonce を省くと、本人が画面を開いた直後の値を使う */
+    decideAs(email, token, decision, comment, now, nonce) {
       user.active = email;
-      return gas.ctx.handleDecision_(token, decision, comment, email, now);
+      const confirm = nonce !== undefined ? nonce : this.pageNonce(email, token, now);
+      return gas.ctx.handleDecision_(token, confirm, decision, comment, email, now);
     },
   };
 }

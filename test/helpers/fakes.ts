@@ -178,10 +178,22 @@ export function createFakeScriptApp() {
   return { ScriptApp, triggers, makeTrigger };
 }
 
-export interface FakeHtmlOutput { content: string; title: string; setTitle(t: string): FakeHtmlOutput; getContent(): string }
+export interface FakeHtmlOutput {
+  content: string;
+  title: string;
+  meta: Record<string, string>;
+  setTitle(t: string): FakeHtmlOutput;
+  addMetaTag(name: string, content: string): FakeHtmlOutput;
+  getContent(): string;
+}
 
 function htmlOutput(content: string): FakeHtmlOutput {
-  return { content, title: '', setTitle(t) { this.title = t; return this; }, getContent() { return this.content; } };
+  return {
+    content, title: '', meta: {},
+    setTitle(t) { this.title = t; return this; },
+    addMetaTag(name, value) { this.meta[name] = value; return this; },
+    getContent() { return this.content; },
+  };
 }
 
 /** HTML 特殊文字のエスケープ（GAS の印字スクリプトレット <?= ?> の HTML 文脈での扱いを再現） */

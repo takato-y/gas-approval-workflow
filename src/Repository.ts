@@ -93,7 +93,7 @@ function requestToRow_(r: ApprovalRequest): CellValue[] {
   const row: CellValue[] = new Array(REQ_WIDTH);
   row[REQ_COL.ID] = r.id;
   row[REQ_COL.SUBMITTED_AT] = r.submittedAt;
-  row[REQ_COL.APPLICANT] = r.applicant;
+  row[REQ_COL.APPLICANT] = sanitizeCell_(r.applicant);
   row[REQ_COL.DEPARTMENT] = r.department;
   row[REQ_COL.CATEGORY] = r.category;
   row[REQ_COL.ITEM] = sanitizeCell_(r.item);
@@ -138,7 +138,7 @@ function appendTokenRecord_(record: Pick<TokenRecord, 'tokenId' | 'requestId' | 
   row[TOKEN_COL.ID] = record.tokenId;
   row[TOKEN_COL.REQUEST_ID] = record.requestId;
   row[TOKEN_COL.STEP] = record.step;
-  row[TOKEN_COL.APPROVER] = record.approver;
+  row[TOKEN_COL.APPROVER] = sanitizeCell_(record.approver);
   row[TOKEN_COL.ISSUED_AT] = record.issuedAt;
   row[TOKEN_COL.EXPIRES_AT] = record.expiresAt;
   row[TOKEN_COL.USED_AT] = '';

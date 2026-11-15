@@ -69,6 +69,7 @@ function userMessageFor_(code: string | null): string {
     case 'CONFIRM_EXPIRED': return '画面を開いてから時間が経ちました。メールのリンクから開き直してください。';
     case 'CONFIRM_INVALID': return '確認画面から操作してください。メールのリンクから開き直してください。';
     case 'BUSY': return '他の処理と重なりました。少し待ってからもう一度押してください。';
+    case 'FLUSH_FAILED': return '保存できたか確認できませんでした。管理者に連絡しました。少し待ってからメールのリンクを開き直し、状態を確認してください。';
     default: return 'このリンクは無効です。';
   }
 }

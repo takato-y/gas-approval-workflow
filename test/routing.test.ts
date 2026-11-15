@@ -1,16 +1,14 @@
 /**
- * routing.test.js
+ * routing.test.ts
  * FN-002 承認経路の決定・FN-001 の入力検査のテスト。
  */
-'use strict';
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { loadGas } = require('./helpers/loadGas');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { loadGas } from './helpers/loadGas.ts';
 
 const { ctx } = loadGas();
 /** vm 内で作られたオブジェクトを比較できる形にする */
-const plain = (v) => JSON.parse(JSON.stringify(v));
+const plain = (v: unknown) => JSON.parse(JSON.stringify(v));
 
 const RULES = ctx.parseRules_([
   ['開発部', 0, 50000, 'dev-lead@example.com', 'dev-sub@example.com'],
@@ -22,7 +20,7 @@ const SETTINGS = {
   finalApprover: 'cfo@example.com',
   adminEmail: 'admin@example.com',
 };
-const req = (over) => Object.assign({ applicant: 'staff@example.com', department: '営業部', amount: 1000 }, over);
+const req = (over: Record<string, unknown> = {}) => Object.assign({ applicant: 'staff@example.com', department: '営業部', amount: 1000 }, over);
 
 test('TC-001 しきい値未満は1段承認になる', () => {
   assert.deepEqual(plain(ctx.resolveApprovalRoute_(req({ amount: 99999 }), RULES, SETTINGS)), [
@@ -97,7 +95,7 @@ test('TC-012 金額が整数・範囲内でなければ INVALID_INPUT', () => {
 
 test('TC-013 選択肢にない部署・区分、長すぎる文字列は INVALID_INPUT', () => {
   const base = [new Date(), 'staff@example.com', '営業部', '経費', '交通費', '1000', '出張'];
-  const cases = [
+  const cases: Array<[number, string]> = [
     [2, '人事部'], [3, '寄付'], [4, 'あ'.repeat(201)], [6, ''], [1, 'not-an-email'],
   ];
   for (const [col, value] of cases) {

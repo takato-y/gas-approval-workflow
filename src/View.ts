@@ -1,18 +1,18 @@
 /**
- * View.js
+ * View.ts
  * 承認画面・案内画面の HTML 作成（純粋ロジック）。
  * 画面に出す値はすべてエスケープする。トークンは画面内のスクリプトに文字列として埋め込む。
  */
 
 /** HTML の特殊文字をエスケープする */
-function escapeHtml_(value) {
+function escapeHtml_(value: unknown): string {
   return String(value == null ? '' : value)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 /** スクリプト内に埋め込む文字列リテラルを作る（</script> での脱出を防ぐ） */
-function jsStringLiteral_(value) {
+function jsStringLiteral_(value: unknown): string {
   return JSON.stringify(String(value)).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
 }
 
@@ -25,23 +25,23 @@ const PAGE_STYLE = [
 ].join('');
 
 /** 案内だけを表示する画面 */
-function renderMessagePage_(title, message) {
+function renderMessagePage_(title: string, message: string): string {
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + PAGE_STYLE + '</style></head><body>' +
     '<h1>' + escapeHtml_(title) + '</h1><p>' + escapeHtml_(message) + '</p></body></html>';
 }
 
 /**
  * 承認・却下の確認画面。開いただけでは状態を変えず、ボタンを押したときに submitDecision を呼ぶ。
- * @param {Object} request
- * @param {number} step
- * @param {string} token
+ * @param request
+ * @param step
+ * @param token
  */
-function renderDecisionPage_(request, step, token) {
+function renderDecisionPage_(request: ApprovalRequest, step: number, token: string): string {
   const rows = [
     ['申請ID', request.id], ['申請者', request.applicant], ['部署', request.department],
     ['申請区分', request.category], ['品目・内容', request.item], ['金額', formatYen_(request.amount)],
     ['理由', request.reason], ['承認段階', step + ' / ' + request.totalSteps],
-  ].map(function (r) { return '<tr><th>' + escapeHtml_(r[0]) + '</th><td>' + escapeHtml_(r[1]) + '</td></tr>'; }).join('');
+  ].map(function (r: Array<string | number>) { return '<tr><th>' + escapeHtml_(r[0]) + '</th><td>' + escapeHtml_(r[1]) + '</td></tr>'; }).join('');
 
   const script = [
     'var TOKEN=' + jsStringLiteral_(token) + ';',
@@ -67,7 +67,7 @@ function renderDecisionPage_(request, step, token) {
 }
 
 /** エラーコードを利用者向けの文に置き換える（内部の詳細は画面に出さない） */
-function userMessageFor_(code) {
+function userMessageFor_(code: string | null): string {
   switch (code) {
     case 'TOKEN_EXPIRED': return 'このリンクは有効期限が切れています。督促メールの新しいリンクをお待ちください。';
     case 'TOKEN_USED':

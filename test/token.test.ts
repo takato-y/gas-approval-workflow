@@ -1,14 +1,12 @@
 /**
- * token.test.js
+ * token.test.ts
  * FN-003 トークンの発行・検証のテスト（改ざん・期限切れ・再利用・本人確認）。
  */
-'use strict';
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
-const { loadGas } = require('./helpers/loadGas');
-const { createFakeUtilities } = require('./helpers/fakes');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { loadGas } from './helpers/loadGas.ts';
+import { createFakeUtilities } from './helpers/fakes.ts';
 
 const { ctx, get } = loadGas({ Utilities: createFakeUtilities() });
 const adapter = ctx.gasCryptoAdapter_();
@@ -17,12 +15,13 @@ const SECRET = 'test-only-key-' + 'x'.repeat(40);
 const NOW = Date.parse('2026-11-15T09:00:00+09:00');
 const TID = '3f2b8c1e-9a4d-4e6b-8f0a-1c2d3e4f5a6b';
 
-const issue = (over) => {
+const issue = (over: Record<string, unknown> = {}) => {
   const claims = Object.assign(ctx.buildTokenClaims_(TID, 'REQ-20261115-0001', 1, NOW, 72), over || {});
   return ctx.signToken_(claims, SECRET, adapter);
 };
 /** トークンの中身を書き換え、署名はそのまま残す（攻撃者の操作を再現） */
-const tamperBody = (token, mutate) => {
+type Claims = { v: number; tid: string; rid: string; step: number; exp: number };
+const tamperBody = (token: string, mutate: (c: Claims) => void) => {
   const [body, sig] = token.split('.');
   const claims = JSON.parse(adapter.decode(body));
   mutate(claims);
@@ -37,13 +36,13 @@ test('TC-016 発行したトークンを検証すると中身が戻る', () => {
 });
 
 test('TC-017 申請ID・段階を書き換えたトークンは署名不一致になる', () => {
-  for (const mutate of [(c) => { c.rid = 'REQ-20261115-0002'; }, (c) => { c.step = 2; }, (c) => { c.tid = crypto.randomUUID(); }]) {
+  for (const mutate of [(c: Claims) => { c.rid = 'REQ-20261115-0002'; }, (c: Claims) => { c.step = 2; }, (c: Claims) => { c.tid = crypto.randomUUID(); }]) {
     assert.throws(() => ctx.verifyToken_(tamperBody(issue(), mutate), SECRET, NOW, adapter), { code: 'TOKEN_BAD_SIGNATURE' });
   }
 });
 
 test('TC-018 有効期限を延ばす改ざんは署名不一致になる', () => {
-  const forged = tamperBody(issue(), (c) => { c.exp = NOW + 365 * 24 * 3600 * 1000; });
+  const forged = tamperBody(issue(), (c: Claims) => { c.exp = NOW + 365 * 24 * 3600 * 1000; });
   assert.throws(() => ctx.verifyToken_(forged, SECRET, NOW + 100 * 3600 * 1000, adapter), { code: 'TOKEN_BAD_SIGNATURE' });
 });
 

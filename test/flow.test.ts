@@ -1,19 +1,17 @@
 /**
- * flow.test.js
+ * flow.test.ts
  * 偽の GAS 環境で、申請受付から承認・却下・通知までを通しで確かめる。
  * 対象: FN-001, FN-005, FN-006, FN-007, FN-010, FN-011, FN-012
  */
-'use strict';
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { createEnv, formRow, TEST_SECRET } = require('./helpers/env');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createEnv, formRow, TEST_SECRET, type Env, type EnvOptions } from './helpers/env.ts';
 
 const T0 = new Date('2026-11-15T09:00:00+09:00');
-const later = (h) => new Date(T0.getTime() + h * 3600 * 1000);
+const later = (h: number) => new Date(T0.getTime() + h * 3600 * 1000);
 const COL = { STATUS: 8, STEP: 9 };
 const TOKEN_STATUS_COL = 7;
-const lastAudit = (env) => env.audit().slice(-1)[0];
+const lastAudit = (env: Env) => env.audit().slice(-1)[0];
 
 test('TC-032 申請受付: 申請一覧に登録し、1段目の承認者にリンク付きメールを送る', () => {
   const env = createEnv();
@@ -205,11 +203,11 @@ test('TC-044 排他制御: 他の処理の実行中は状態を変えずに「�
 });
 
 test('TC-045 鍵・ウェブアプリURLが未設定なら申請を登録しない', () => {
-  for (const opt of [{ secret: null }, { secret: 'short' }, { webAppUrl: null }, { webAppUrl: 'https://evil.example.com/exec' }]) {
+  for (const opt of [{ secret: null } as EnvOptions, { secret: 'short' }, { webAppUrl: null }, { webAppUrl: 'https://evil.example.com/exec' }]) {
     const env = createEnv(opt);
     assert.equal(env.submitForm(formRow(), T0), null);
     assert.equal(env.requests().length, 0, JSON.stringify(Object.keys(opt)));
-    assert.match(lastAudit(env)[5], /SECRET_NOT_CONFIGURED|WEBAPP_URL_NOT_CONFIGURED/);
+    assert.match(String(lastAudit(env)[5]), /SECRET_NOT_CONFIGURED|WEBAPP_URL_NOT_CONFIGURED/);
   }
 });
 
@@ -242,7 +240,7 @@ test('TC-048 初期設定: 管理者本人だけが実行でき、鍵は上書�
   assert.throws(() => env.ctx.setupProject(), { code: 'NOT_ADMIN' }, '実行権限の持ち主と操作者が違う');
   env.user.effective = 'admin@example.com';
   env.ctx.setupProject();
-  const secret = env.props.get('APPROVAL_HMAC_SECRET');
+  const secret = env.props.get('APPROVAL_HMAC_SECRET') ?? '';
   assert.match(secret, /^[0-9a-f]{64}$/);
   env.ctx.setupProject();
   assert.equal(env.props.get('APPROVAL_HMAC_SECRET'), secret, '2回目は鍵を変えない');

@@ -1,5 +1,5 @@
 /**
- * StateMachine.js
+ * StateMachine.ts
  * 申請の状態遷移（純粋ロジック）。
  *
  * 承認待ち(段階n) --承認--> 承認待ち(段階n+1)   ※ n < 総段階
@@ -15,11 +15,12 @@ const ACTION = Object.freeze({
 
 /**
  * 現在の状態と操作から次の状態を決める。許されない操作はエラーにする。
- * @param {{status: string, currentStep: number, totalSteps: number}} current
- * @param {{type: string, step: number}} action step は操作に使ったトークンの段階
- * @return {{status: string, currentStep: number, totalSteps: number, completed: boolean, nextStep: ?number}}
+ * @param action step は操作に使ったトークンの段階
  */
-function transition_(current, action) {
+function transition_(
+  current: { status: string; currentStep: number; totalSteps: number },
+  action: { type: string; step: number } | null | undefined,
+): TransitionResult {
   const totalSteps = Number(current.totalSteps);
   const currentStep = Number(current.currentStep);
   if (!(totalSteps === 1 || totalSteps === 2) || !(currentStep >= 1 && currentStep <= totalSteps)) {
@@ -39,10 +40,10 @@ function transition_(current, action) {
   }
 
   if (action.type === ACTION.REJECT) {
-    return { status: STATUS.REJECTED, currentStep: currentStep, totalSteps: totalSteps, completed: true, nextStep: null };
+    return { status: STATUS.REJECTED, currentStep, totalSteps, completed: true, nextStep: null };
   }
   if (currentStep < totalSteps) {
-    return { status: STATUS.PENDING, currentStep: currentStep + 1, totalSteps: totalSteps, completed: false, nextStep: currentStep + 1 };
+    return { status: STATUS.PENDING, currentStep: currentStep + 1, totalSteps, completed: false, nextStep: currentStep + 1 };
   }
-  return { status: STATUS.APPROVED, currentStep: currentStep, totalSteps: totalSteps, completed: true, nextStep: null };
+  return { status: STATUS.APPROVED, currentStep, totalSteps, completed: true, nextStep: null };
 }

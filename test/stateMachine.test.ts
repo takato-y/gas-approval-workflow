@@ -1,17 +1,15 @@
 /**
- * stateMachine.test.js
+ * stateMachine.test.ts
  * FN-004 状態遷移の判定のテスト（二重承認・却下後の承認・段階の取り違え）。
  */
-'use strict';
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { loadGas } = require('./helpers/loadGas');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { loadGas } from './helpers/loadGas.ts';
 
 const { ctx, get } = loadGas();
 const S = get('STATUS');
 const A = get('ACTION');
-const plain = (v) => JSON.parse(JSON.stringify(v));
+const plain = (v: unknown) => JSON.parse(JSON.stringify(v));
 
 test('TC-026 1段承認: 承認待ち → 承認済み', () => {
   const next = plain(ctx.transition_({ status: S.PENDING, currentStep: 1, totalSteps: 1 }, { type: A.APPROVE, step: 1 }));

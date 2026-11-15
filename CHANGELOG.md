@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-15
+
+### Fixed
+
+- 状態を保存した後の監査ログの記録（受付・承認・却下・督促・初期設定）が失敗しても、保存済みの成功を失敗として返さないように修正（記録できなかったことは実行ログに残す）
+- 承認・却下では申請の状態の更新を確定の時点とし、その後にトークンを使用済みにするよう順序を変更。使用済みにできなかった場合も確定を取り消さず、残ったトークンは確認画面の時点で段階の不一致として拒否する
+- ロックの解放の失敗で、確定済みの結果を失敗に変えないように修正
+- 督促の途中で失敗の記録ができない場合に、残りの申請の督促が止まらないように修正
+- 自動テストを81件に追加（TC-078〜TC-081）
+
 ## [1.0.2] - 2026-11-15
 
 ### Fixed
@@ -54,7 +64,8 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/takato-y/gas-approval-workflow/releases/tag/v1.0.0

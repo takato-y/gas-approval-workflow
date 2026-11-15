@@ -114,6 +114,8 @@ src/                         GAS のソース（TypeScript と画面のテンプ
   Guard.ts                   トリガー・管理者の検証
   View.ts                    画面の組み立て
   Main.ts                    入口（公開関数5つ）
+  Config.ts                  シート名などの定数・設定シートの値の解釈・共通の小さな関数（Google のサービスを使わない）
+  Types.ts                   全ファイルで共有する型
   Approval.html, Message.html 承認の確認画面・案内画面（HTML・CSS・画面側の JavaScript）
   appsscript.json            タイムゾーン・権限（スコープ）・ウェブアプリの設定
 tools/                       サンプルデータ作成のコマンド（Node.js・TypeScript）

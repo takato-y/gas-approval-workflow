@@ -10,7 +10,8 @@
   <style>
     :root { --bg: #f5f7fa; --surface: #ffffff; --text: #1f2933; --border: #cbd2d9; }
     body { margin: 0; background: var(--bg); color: var(--text); font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif; line-height: 1.7; }
-    main { max-width: 680px; margin: 24px auto; padding: 24px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    * { box-sizing: border-box; }
+    main { width: calc(100% - 32px); max-width: 680px; margin: 16px auto; padding: 24px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
     h1 { font-size: 1.4rem; margin: 0 0 8px; }
   </style>
 </head>

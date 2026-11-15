@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && node tools/copy-assets.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json",
-    "test": "npm run build && node --test \"test/*.test.ts\""
+    "test": "npm run build && node --test \"test/*.test.ts\"",
+    "sample-data": "node tools/generate-sample-data.ts"
   },
   "engines": {
     "node": ">=22.18"

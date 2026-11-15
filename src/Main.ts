@@ -2,16 +2,17 @@
  * Main.ts
  * 入口（公開関数）と、入口から呼ぶ処理の組み立て。
  *
- * 公開関数（末尾に `_` が無い関数）は次の4つだけ。一覧は docs/04_権限設計.md と
+ * 公開関数（末尾に `_` が無い関数）は次の5つだけ。一覧は docs/04_権限設計.md と
  * test/publicFunctions.test.ts で管理し、増えたらテストが失敗する。
  *   doGet          ウェブアプリの入口（確認画面の表示のみ。状態は変えない）
  *   submitDecision 確認画面の「確定する」から呼ぶ（トークン・確認用の値・本人・状態をすべて検証する）
  *   onFormSubmit   フォーム送信トリガー（イベント情報を検証する）
+ *   sendReminders  時間主導トリガー（イベント情報を検証する）
  *   setupProject   初期設定（管理者本人の実行に限る）
  */
 
 const LOCK_WAIT_MS = 10000;
-const HANDLERS: { FORM: string; REMINDER?: string } = Object.freeze({ FORM: 'onFormSubmit' });
+const HANDLERS: { FORM: string; REMINDER?: string } = Object.freeze({ FORM: 'onFormSubmit', REMINDER: 'sendReminders' });
 
 /* ===================== 公開関数 ===================== */
 
@@ -34,6 +35,11 @@ function doGet(e: { parameter?: { [key: string]: string } } | undefined): Google
  */
 function submitDecision(token: unknown, nonce: unknown, decision: unknown, comment: unknown): DecisionResult {
   return handleDecision_(token, nonce, decision, comment, Session.getActiveUser().getEmail(), new Date());
+}
+
+/** 時間主導トリガー（1時間ごと）: 承認待ちの督促と、上限超過の管理者への知らせ */
+function sendReminders(e: unknown): { reminded: number; escalated: number; failed: number } {
+  return handleReminders_(e, new Date());
 }
 
 /** 初期設定: 署名用の鍵の生成とトリガーの登録。管理者がエディタから1回実行する */
@@ -207,6 +213,59 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
     audit_(now, requestId, '拒否', actorLabel, '失敗', code);
     return { ok: false, message: userMessageFor_(code) };
   }
+}
+
+/** FN-009 督促の実行。1件の失敗で他の申請の督促を止めない */
+function handleReminders_(e: unknown, now: Date): { reminded: number; escalated: number; failed: number } {
+  try {
+    assertTimeEvent_(e, 'sendReminders');
+  } catch (err) {
+    audit_(now, '', '拒否', 'unknown', '失敗', errorCode_(err) || 'UNEXPECTED');
+    throw err;
+  }
+  return withLock_(function () {
+    const settings = readSettings_();
+    const selected = selectReminders_(listPendingRequests_(), now.getTime(), settings);
+    const summary = { reminded: 0, escalated: 0, failed: 0 };
+
+    selected.remind.forEach(function (item) {
+      const r = item.request;
+      try {
+        const count = r.reminderCount + 1;
+        // 古いリンクを失効させてから新しいリンクを送る（期限切れ対策と、出回るリンクを1本に保つため）
+        revokeActiveTokens_(r.id);
+        issueTokenAndNotify_(r, r.currentStep, settings, now, count);
+        updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: count, updatedAt: now }));
+        audit_(now, r.id, '督促', 'system', '成功', count + '回目 段階 ' + r.currentStep);
+        summary.reminded++;
+      } catch (err) {
+        audit_(now, r.id, '督促', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
+        summary.failed++;
+      }
+    });
+
+    selected.escalate.forEach(function (item) {
+      const r = item.request;
+      try {
+        const approver = r.route[r.currentStep - 1] ? r.route[r.currentStep - 1].approver : '（不明）';
+        sendMail_(buildAdminNoticeMail_(settings.adminEmail, '督促しても承認されていない申請 ' + r.id, [
+          '督促を ' + settings.maxReminders + ' 回送りましたが、まだ承認されていません。',
+          '承認者に直接連絡するか、承認ルールの見直しを検討してください。',
+          '',
+          '申請ID: ' + r.id,
+          '承認段階: ' + r.currentStep + ' / ' + r.totalSteps,
+          '承認者: ' + approver,
+        ]));
+        updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: settings.maxReminders + 1, updatedAt: now }));
+        audit_(now, r.id, '管理者通知', 'system', '成功', '督促上限超過');
+        summary.escalated++;
+      } catch (err) {
+        audit_(now, r.id, '管理者通知', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
+        summary.failed++;
+      }
+    });
+    return summary;
+  });
 }
 
 /** 署名用の鍵を作る（UUID 2つ分の乱数を16進で連結） */

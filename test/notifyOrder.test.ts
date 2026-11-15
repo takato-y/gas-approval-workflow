@@ -126,3 +126,35 @@ test('TC-095 督促: 督促回数・最終通知日時もトークン行と一�
   assert.equal(fail.requests()[0][COL.COUNT], 0, '督促回数を戻す');
   assert.equal((fail.requests()[0][COL.LAST] as Date).getTime(), T0.getTime(), '最終通知日時を戻す');
 });
+
+test('TC-097 送れなかった承認依頼・督促の新しいトークンは失効させる（古いトークンは有効に戻さない）', () => {
+  const TOKEN_STATUS_COL = 7;
+  // 督促: 古いトークンは失効、送れなかった新しいトークンも失効
+  const rem = createEnv();
+  rem.submitForm(formRow(), T0);
+  rem.mailFailTo.add('manager@example.com');
+  quietly(() => runReminders(rem, later(24)));
+  assert.deepEqual(rem.tokens().map((t) => t[TOKEN_STATUS_COL]), ['失効', '失効']);
+  assert.equal(rem.lock.acquired, rem.lock.released);
+  // 次の見回りで新しいリンクが送られ、それだけが有効になる
+  rem.mailFailTo.delete('manager@example.com');
+  assert.equal(runReminders(rem, later(25)).reminded, 1);
+  assert.deepEqual(rem.tokens().map((t) => t[TOKEN_STATUS_COL]), ['失効', '失効', '有効']);
+
+  // 受付: 送れなかった承認依頼のトークンを失効させる（排他制御の中で書き、解放前に flush する）
+  const sub = createEnv();
+  sub.mailFailTo.add('manager@example.com');
+  const id = quietly(() => sub.submitForm(formRow(), T0));
+  assert.equal(id, 'REQ-20261115-0001', '登録は取り消さない');
+  assert.deepEqual(sub.tokens().map((t) => t[TOKEN_STATUS_COL]), ['失効']);
+  assert.deepEqual(sub.events.slice(-3), ['acquire', 'flush', 'release']);
+
+  // 2段目へ進む確定: 送れなかった次の承認者のトークンを失効させる（確定は取り消さない）
+  const dec = createEnv();
+  dec.submitForm(formRow({ amount: '150000' }), T0);
+  dec.mailFailTo.add('cfo@example.com');
+  const res = quietly(() => dec.decideAs('director@example.com', dec.tokenFor('director@example.com'), 'approve', '', later(1)));
+  assert.equal(res.ok, true);
+  assert.equal(dec.requests()[0][COL.STEP], 2);
+  assert.deepEqual(dec.tokens().map((t) => t[TOKEN_STATUS_COL]), ['使用済み', '失効']);
+});

@@ -132,7 +132,7 @@ function auditSafely_(now: Date, requestId: string, operation: string, actor: st
  * トークンを発行して承認トークンシートに記録し、送るメールを作る（送信はしない）。
  * URL・鍵を記録より先に確かめ、送れないリンクの行を作らない。
  */
-function issueToken_(request: ApprovalRequest, step: number, settings: Settings, now: Date, reminderCount: number): { token: string; expiresAt: Date; mail: Mail } {
+function issueToken_(request: ApprovalRequest, step: number, settings: Settings, now: Date, reminderCount: number): { tokenId: string; token: string; expiresAt: Date; mail: Mail } {
   const baseUrl = getWebAppUrl_();
   const secret = getSecret_();
   assertSecret_(secret);
@@ -145,12 +145,12 @@ function issueToken_(request: ApprovalRequest, step: number, settings: Settings,
   const mail = reminderCount
     ? buildReminderMail_(request, approver, link, expiresAt, reminderCount)
     : buildApprovalRequestMail_(request, approver, step, link, expiresAt);
-  return { token, expiresAt, mail };
+  return { tokenId: claims.tid, token, expiresAt, mail };
 }
 
 /** 承認依頼のトークンの発行を試みた結果（発行できなかった場合は error に原因を持つ） */
 interface IssueAttempt {
-  issued: { token: string; expiresAt: Date; mail: Mail } | null;
+  issued: { tokenId: string; token: string; expiresAt: Date; mail: Mail } | null;
   error: unknown;
 }
 
@@ -172,6 +172,33 @@ function tryIssueToken_(request: ApprovalRequest, step: number, now: Date, setti
 function sendIssued_(attempt: IssueAttempt): void {
   if (!attempt.issued) throw attempt.error;
   sendMail_(attempt.issued.mail);
+}
+
+/**
+ * 送れなかったリンクのトークンを失効させる（失敗は実行ログに残し、処理は止めない）。
+ * 排他制御の中で呼ぶ。書き込みはその排他制御の解放前の flush で確定する。
+ */
+function revokeTokenSafely_(tokenId: string): void {
+  try {
+    revokeToken_(tokenId);
+  } catch (err) {
+    console.error('送れなかったトークンを失効させられませんでした: ' + tokenId + ' / ' + (errorCode_(err) || 'UNEXPECTED'));
+  }
+}
+
+/**
+ * 排他制御の外で承認依頼を送れなかったとき、そのトークンを失効させる（受付・確定の後）。
+ * 新たに排他制御を取り、withLock_ の解放前の flush で確定する。取れない・確定できない場合も処理は止めない
+ * （残った「有効」の行は、次の督促で失効する）。
+ */
+function revokeUnsentToken_(attempt: IssueAttempt): void {
+  if (!attempt.issued) return;
+  const tokenId = attempt.issued.tokenId;
+  try {
+    withLock_(function () { revokeTokenSafely_(tokenId); });
+  } catch (err) {
+    console.error('送れなかったトークンを失効させられませんでした: ' + tokenId + ' / ' + (errorCode_(err) || 'UNEXPECTED'));
+  }
 }
 
 /** 督促・管理者通知の送信に失敗したとき、申請一覧の行を送信前の値に戻す（失敗は実行ログに残す） */
@@ -235,7 +262,7 @@ function handleFormSubmit_(e: unknown, now: Date): string | null {
   }
   // 登録とトークン行の確定の後に通知する。通知に失敗しても登録は取り消さない（督促で新しいリンクが送られる）
   const reg = registered;
-  notifySafely_(now, reg.request.id, function () { sendIssued_(reg.attempt); });
+  if (!notifySafely_(now, reg.request.id, function () { sendIssued_(reg.attempt); })) revokeUnsentToken_(reg.attempt);
   return reg.request.id;
 }
 
@@ -354,6 +381,7 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
     if (done.attempt) {
       const attempt = done.attempt;
       const sent = notifySafely_(now, requestId, function () { sendIssued_(attempt); });
+      if (!sent) revokeUnsentToken_(attempt);
       return { ok: true, message: decidedLabel + (sent ? '次の承認者に回しました。' : '次の承認者への通知に失敗したため、管理者に連絡しました。') };
     }
     const sent = notifySafely_(now, requestId, function () { sendMail_(buildResultMail_(done.updated, done.next.status, note)); });
@@ -420,6 +448,9 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
             flushOrThrow_();
             sendMail_(issued.mail);
           } catch (sendErr) {
+            // 送れなかった新しいリンクを失効させ、行を戻す（古いリンクは失効のまま有効に戻さない）。
+            // どちらの書き込みも、この排他制御の解放前の flush で確定する
+            revokeTokenSafely_(issued.tokenId);
             restoreRequestSafely_(item.rowNumber, r);
             throw sendErr;
           }

@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-11-16
+
+### Added
+
+- 障害対応手順書（docs/07_障害対応手順書.md）を追加。障害時の流れ、切り分けの順番、エラーID別の対応手順、記録と報告のひな形、エラーID対応表を記載
+- 詳細設計に「エラー一覧」を追加し、コード上のエラーと記録を伴う失敗にエラーID（ERR-001〜ERR-034）を付与
+- 導入・運用手順に、定期点検・バックアップと戻し方・資格情報と鍵の更新・連絡体制を追加
+- 詳細設計のエラーIDと障害対応手順書の対応を検査する自動テストを追加（TC-086。全86件）
+
+### Changed
+
+- 導入・運用手順の「鍵の交換」を、鍵の更新手順（7.1）への参照に変更。督促回数が上限に達した申請には、鍵の更新後に新しいリンクが送られないことを明記
+
 ## [1.0.4] - 2026-11-15
 
 ### Fixed
@@ -73,7 +86,8 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.1...v1.0.2

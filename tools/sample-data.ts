@@ -59,6 +59,7 @@ export function settingsRows(threshold: number): Row[] {
     ['トークン有効時間', 72],
     ['督促開始時間', 24],
     ['督促上限回数', 3],
+    ['申請者ドメイン', 'example.com'],
   ];
 }
 

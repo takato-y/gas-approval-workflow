@@ -5,7 +5,7 @@
  * 公開関数（末尾に `_` が無い関数）は次の4つだけ。一覧は docs/04_権限設計.md と
  * test/publicFunctions.test.ts で管理し、増えたらテストが失敗する。
  *   doGet          ウェブアプリの入口（確認画面の表示のみ。状態は変えない）
- *   submitDecision 確認画面のボタンから呼ぶ（トークン・本人・状態をすべて検証する）
+ *   submitDecision 確認画面の「確定する」から呼ぶ（トークン・確認用の値・本人・状態をすべて検証する）
  *   onFormSubmit   フォーム送信トリガー（イベント情報を検証する）
  *   setupProject   初期設定（管理者本人の実行に限る）
  */
@@ -22,13 +22,18 @@ function onFormSubmit(e: unknown): string | null {
 
 /** ウェブアプリ: 承認リンクを開いたときの確認画面 */
 function doGet(e: { parameter?: { [key: string]: string } } | undefined): GoogleAppsScript.HTML.HtmlOutput {
-  const html = renderDecisionView_(e && e.parameter ? e.parameter.t : '', Session.getActiveUser().getEmail(), new Date());
-  return HtmlService.createHtmlOutput(html).setTitle('申請の承認');
+  // X-Frame-Options は設定しない（既定の DEFAULT のまま。他サイトへの埋め込みを許可しない）
+  return renderDecisionView_(e && e.parameter ? e.parameter.t : '', Session.getActiveUser().getEmail(), new Date())
+    .setTitle('申請の承認')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-/** 確認画面のボタンから呼ばれる。結果は利用者向けの文で返す */
-function submitDecision(token: unknown, decision: unknown, comment: unknown): DecisionResult {
-  return handleDecision_(token, decision, comment, Session.getActiveUser().getEmail(), new Date());
+/**
+ * 確認画面の「確定する」から呼ばれる。結果は利用者向けの文で返す。
+ * @param nonce 確認画面を表示したときに作った確認用の値（CSRF 対策）
+ */
+function submitDecision(token: unknown, nonce: unknown, decision: unknown, comment: unknown): DecisionResult {
+  return handleDecision_(token, nonce, decision, comment, Session.getActiveUser().getEmail(), new Date());
 }
 
 /** 初期設定: 署名用の鍵の生成とトリガーの登録。管理者がエディタから1回実行する */
@@ -144,11 +149,12 @@ function loadDecisionContext_(token: unknown, activeUserEmail: unknown, now: Dat
   return { claims, tokenRow: row, actor, found };
 }
 
-/** FN-005 確認画面の HTML を作る（状態は変えない） */
-function renderDecisionView_(token: unknown, activeUserEmail: unknown, now: Date): string {
+/** FN-005 確認画面を作る（状態は変えない） */
+function renderDecisionView_(token: unknown, activeUserEmail: unknown, now: Date): GoogleAppsScript.HTML.HtmlOutput {
   try {
     const c = loadDecisionContext_(token, activeUserEmail, now);
-    return renderDecisionPage_(c.found.request, c.claims.step, String(token));
+    const nonce = createConfirmNonce_(c.claims.tid, c.actor, now.getTime(), getSecret_(), gasCryptoAdapter_());
+    return renderDecisionPage_(c.found.request, c.claims.step, String(token), nonce);
   } catch (err) {
     const code = errorCode_(err);
     if (!code) throw err;
@@ -158,7 +164,7 @@ function renderDecisionView_(token: unknown, activeUserEmail: unknown, now: Date
 }
 
 /** FN-006 承認・却下の確定 */
-function handleDecision_(token: unknown, decision: unknown, comment: unknown, activeUserEmail: unknown, now: Date): DecisionResult {
+function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comment: unknown, activeUserEmail: unknown, now: Date): DecisionResult {
   const actorLabel = normalizeEmail_(activeUserEmail) || 'unknown';
   let requestId = '';
   try {
@@ -171,6 +177,7 @@ function handleDecision_(token: unknown, decision: unknown, comment: unknown, ac
       // 排他制御の中で読み直してから判定する（同時に押された場合の二重処理を防ぐ）
       const c = loadDecisionContext_(token, activeUserEmail, now);
       requestId = c.claims.rid;
+      verifyConfirmNonce_(nonce, c.claims.tid, c.actor, now.getTime(), getSecret_(), gasCryptoAdapter_());
       const request = c.found.request;
       const next = transition_(request, { type, step: c.claims.step });
 

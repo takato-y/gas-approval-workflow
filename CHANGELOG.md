@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-11-16
+
+### Changed
+
+- README・設計書・導入・運用手順・障害対応手順書の文章を見直した（話し言葉・表記ゆれ・説明の不足・文のねじれを修正）。障害対応手順書 ERR-031 の「影響」を項目ごとに分けた
+- package.json・package-lock.json の版を 1.0.7 にそろえた
+
+### Fixed
+
+- 要件定義 REQ-002 で、部署・金額ごとの承認者の規則を変更するシートを「設定」シートと書いていたのを、実装どおり「承認ルール」シートに修正
+- 督促の上限の記述を、実装（督促回数が上限に達した見回りで管理者に知らせる）どおり「超えたら」から「達したら」に修正（要件定義・基本設計 4.4・テスト仕様書・障害対応手順書）
+- README の構成と基本設計 1.1 のコードの分け方に、記載の無かった `Config.ts`・`Types.ts` を追加
+- 権限設計 6章「鍵の交換」の参照先を、手順の本体がある導入・運用手順の 7.1 に修正
+
 ## [1.0.6] - 2026-11-16
 
 ### Added
@@ -115,7 +129,8 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.3...v1.0.4

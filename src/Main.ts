@@ -40,7 +40,7 @@ function submitDecision(token: unknown, nonce: unknown, decision: unknown, comme
 }
 
 /** 時間主導トリガー（1時間ごと）: 承認待ちの督促と、上限超過の管理者への知らせ */
-function sendReminders(e: unknown): { reminded: number; escalated: number; failed: number } {
+function sendReminders(e: unknown): { reminded: number; escalated: number; failed: number; skipped?: boolean; error?: string } {
   return handleReminders_(e, new Date());
 }
 
@@ -74,12 +74,7 @@ function withLock_<T>(fn: () => T): T {
   if (!lock.tryLock(LOCK_WAIT_MS)) throw approvalError_('BUSY', '他の処理が実行中です');
   try {
     const result = fn();
-    try {
-      SpreadsheetApp.flush();
-    } catch (flushErr) {
-      console.error('書き込みの反映（flush）に失敗しました: ' + (errorCode_(flushErr) || 'UNEXPECTED'));
-      throw approvalError_('FLUSH_FAILED', '書き込みの反映を確認できませんでした');
-    }
+    flushOrThrow_();
     return result;
   } finally {
     // 解放の失敗で、保存済みの処理結果を失敗に変えない（失敗は実行ログに残す）
@@ -88,6 +83,19 @@ function withLock_<T>(fn: () => T): T {
     } catch (releaseErr) {
       console.error('ロックの解放に失敗しました: ' + (errorCode_(releaseErr) || 'UNEXPECTED'));
     }
+  }
+}
+
+/**
+ * 保留中の書き込みを SpreadsheetApp.flush() で反映する。失敗したら FLUSH_FAILED を投げる。
+ * 排他制御の中（ロックの解放前）でだけ呼ぶこと。
+ */
+function flushOrThrow_(): void {
+  try {
+    SpreadsheetApp.flush();
+  } catch (flushErr) {
+    console.error('書き込みの反映（flush）に失敗しました: ' + (errorCode_(flushErr) || 'UNEXPECTED'));
+    throw approvalError_('FLUSH_FAILED', '書き込みの反映を確認できませんでした');
   }
 }
 
@@ -120,19 +128,31 @@ function auditSafely_(now: Date, requestId: string, operation: string, actor: st
   }
 }
 
-/** トークンを発行して記録し、承認依頼（または督促）メールを送る */
-function issueTokenAndNotify_(request: ApprovalRequest, step: number, settings: Settings, now: Date, reminderCount: number): { token: string; expiresAt: Date } {
+/**
+ * トークンを発行して承認トークンシートに記録し、送るメールを作る（送信はしない）。
+ * URL・鍵を記録より先に確かめ、送れないリンクの行を作らない。
+ */
+function issueToken_(request: ApprovalRequest, step: number, settings: Settings, now: Date, reminderCount: number): { token: string; expiresAt: Date; mail: Mail } {
+  const baseUrl = getWebAppUrl_();
+  const secret = getSecret_();
+  assertSecret_(secret);
   const approver = request.route[step - 1].approver;
   const claims = buildTokenClaims_(Utilities.getUuid(), request.id, step, now.getTime(), settings.tokenTtlHours);
-  const token = signToken_(claims, getSecret_(), gasCryptoAdapter_());
+  const token = signToken_(claims, secret, gasCryptoAdapter_());
   const expiresAt = new Date(claims.exp);
   appendTokenRecord_({ tokenId: claims.tid, requestId: request.id, step, approver, issuedAt: now, expiresAt });
-  const link = getWebAppUrl_() + '?t=' + encodeURIComponent(token);
+  const link = baseUrl + '?t=' + encodeURIComponent(token);
   const mail = reminderCount
     ? buildReminderMail_(request, approver, link, expiresAt, reminderCount)
     : buildApprovalRequestMail_(request, approver, step, link, expiresAt);
-  sendMail_(mail);
-  return { token, expiresAt };
+  return { token, expiresAt, mail };
+}
+
+/** トークンを発行して記録し、承認依頼（または督促）メールを送る */
+function issueTokenAndNotify_(request: ApprovalRequest, step: number, settings: Settings, now: Date, reminderCount: number): { token: string; expiresAt: Date } {
+  const issued = issueToken_(request, step, settings, now, reminderCount);
+  sendMail_(issued.mail);
+  return { token: issued.token, expiresAt: issued.expiresAt };
 }
 
 /** 設定不備などを管理者に知らせる（知らせられなくても本処理は止めない） */
@@ -235,7 +255,10 @@ function loadDecisionContext_(token: unknown, activeUserEmail: unknown, now: Dat
   const actor = checkApproverIdentity_(row.record, activeUserEmail);
   const found = findRequest_(claims.rid);
   if (!found) throw approvalError_('REQUEST_NOT_FOUND', '申請が見つかりません');
-  if (found.request.status !== STATUS.PENDING) throw approvalError_('ALREADY_DECIDED', '処理済みの申請です');
+  const status = found.request.status;
+  if (status === STATUS.APPROVED || status === STATUS.REJECTED) throw approvalError_('ALREADY_DECIDED', '処理済みの申請です');
+  // 承認待ち・承認済み・却下のどれでもない値は記録の破損として扱う（「処理済み」と案内しない）
+  if (status !== STATUS.PENDING) throw approvalError_('INVALID_STATE', '申請の状態の記録が不正です');
   // 前の段階のトークンが「有効」のまま残っていた場合も、確認画面を出さずに止める
   if (found.request.currentStep !== claims.step) throw approvalError_('STEP_MISMATCH', '現在の承認段階ではありません');
   return { claims, tokenRow: row, actor, found };
@@ -325,65 +348,92 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
 }
 
 /** FN-009 督促の実行。1件の失敗で他の申請の督促を止めない */
-function handleReminders_(e: unknown, now: Date): { reminded: number; escalated: number; failed: number; skipped?: boolean } {
+function handleReminders_(e: unknown, now: Date): { reminded: number; escalated: number; failed: number; skipped?: boolean; error?: string } {
   try {
     assertTimeEvent_(e, 'sendReminders');
   } catch (err) {
     audit_(now, '', '拒否', 'unknown', '失敗', errorCode_(err) || 'UNEXPECTED');
     throw err;
   }
-  return withLock_(function () {
-    // 前回の実行から短時間なら何もしない（想定外の経路で何度呼ばれても、督促を早めたり増やしたりしない）
-    const props = PropertiesService.getScriptProperties();
-    const last = Number(props.getProperty(PROP_KEYS.REMINDER_LAST_RUN));
-    if (Number.isFinite(last) && last > 0 && now.getTime() - last < REMINDER_MIN_INTERVAL_MS) {
-      return { reminded: 0, escalated: 0, failed: 0, skipped: true };
+  // 排他制御の中で数える。その回全体が失敗しても、それまでの件数を返す
+  const summary = { reminded: 0, escalated: 0, failed: 0 };
+  try {
+    return withLock_(function () {
+      // 前回の実行から短時間なら何もしない（想定外の経路で何度呼ばれても、督促を早めたり増やしたりしない）
+      const props = PropertiesService.getScriptProperties();
+      const last = Number(props.getProperty(PROP_KEYS.REMINDER_LAST_RUN));
+      if (Number.isFinite(last) && last > 0 && now.getTime() - last < REMINDER_MIN_INTERVAL_MS) {
+        return { reminded: 0, escalated: 0, failed: 0, skipped: true };
+      }
+      // 設定を読めた場合だけ「実行した」と記録する（設定の不備で何もしなかった回を実行済みにしない）。
+      // 記録はメール送信の前に行い、送信中に再び呼ばれても最短間隔が効くようにする
+      const settings = readSettings_();
+      props.setProperty(PROP_KEYS.REMINDER_LAST_RUN, String(now.getTime()));
+      const selected = selectReminders_(listPendingRequests_(), now.getTime(), settings);
+
+      selected.remind.forEach(function (item) {
+        const r = item.request;
+        try {
+          const count = r.reminderCount + 1;
+          // 新しいリンクを作れない設定（URL・鍵の不備）なら、古いリンクを失効させる前に止める
+          getWebAppUrl_();
+          assertSecret_(getSecret_());
+          // 古いリンクを失効させてから新しいリンクを作る（期限切れ対策と、出回るリンクを1本に保つため）
+          revokeActiveTokens_(r.id);
+          const issued = issueToken_(r, r.currentStep, settings, now, count);
+          // トークン行を確定させてからメールを送る（届いたリンクが「発行記録なし」にならないように）。
+          // 確定できなければ送らず、この申請の督促を失敗にする（最終通知日時を更新しないため次の見回りで再び督促する）
+          flushOrThrow_();
+          sendMail_(issued.mail);
+          updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: count, updatedAt: now }));
+          auditSafely_(now, r.id, '督促', 'system', '成功', count + '回目 段階 ' + r.currentStep);
+          summary.reminded++;
+        } catch (err) {
+          auditSafely_(now, r.id, '督促', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
+          summary.failed++;
+        }
+      });
+
+      selected.escalate.forEach(function (item) {
+        const r = item.request;
+        try {
+          const approver = r.route[r.currentStep - 1] ? r.route[r.currentStep - 1].approver : '（不明）';
+          sendMail_(buildAdminNoticeMail_(settings.adminEmail, '督促しても承認されていない申請 ' + r.id, [
+            '督促を ' + settings.maxReminders + ' 回送りましたが、まだ承認されていません。',
+            '承認者に直接連絡するか、承認ルールの見直しを検討してください。',
+            '',
+            '申請ID: ' + r.id,
+            '承認段階: ' + r.currentStep + ' / ' + r.totalSteps,
+            '承認者: ' + approver,
+          ]));
+          updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: settings.maxReminders + 1, updatedAt: now }));
+          auditSafely_(now, r.id, '管理者通知', 'system', '成功', '督促上限超過');
+          summary.escalated++;
+        } catch (err) {
+          auditSafely_(now, r.id, '管理者通知', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
+          summary.failed++;
+        }
+      });
+      return { reminded: summary.reminded, escalated: summary.escalated, failed: summary.failed };
+    });
+  } catch (err) {
+    // その回全体の失敗（BUSY・設定の不備・最後の flush の失敗など）。申請IDは空で記録する。
+    // 記録に失敗した場合は auditSafely_ が管理者に知らせる
+    const code = errorCode_(err);
+    auditSafely_(now, '', '督促', 'system', '失敗', code || 'UNEXPECTED');
+    if (code === 'FLUSH_FAILED') {
+      // 督促メールは各申請のトークン行を確定してから送っているが、督促回数・最終通知日時・監査ログの行は
+      // 反映されたか分からない。管理者に照合を依頼する
+      notifyAdminSafely_('督促の保存を確認できませんでした', [
+        '書き込みの反映（flush）に失敗しました。申請一覧の督促回数・最終通知日時、承認トークン、監査ログを照合してください。',
+        '反映されていない申請は、次の見回りで再び督促されます。',
+        '日時: ' + now.toISOString(),
+        '督促: ' + summary.reminded + '件 ／ 管理者通知: ' + summary.escalated + '件 ／ 失敗: ' + summary.failed + '件',
+      ]);
     }
-    // 設定を読めた場合だけ「実行した」と記録する（設定の不備で何もしなかった回を実行済みにしない）。
-    // 記録はメール送信の前に行い、送信中に再び呼ばれても最短間隔が効くようにする
-    const settings = readSettings_();
-    props.setProperty(PROP_KEYS.REMINDER_LAST_RUN, String(now.getTime()));
-    const selected = selectReminders_(listPendingRequests_(), now.getTime(), settings);
-    const summary = { reminded: 0, escalated: 0, failed: 0 };
-
-    selected.remind.forEach(function (item) {
-      const r = item.request;
-      try {
-        const count = r.reminderCount + 1;
-        // 古いリンクを失効させてから新しいリンクを送る（期限切れ対策と、出回るリンクを1本に保つため）
-        revokeActiveTokens_(r.id);
-        issueTokenAndNotify_(r, r.currentStep, settings, now, count);
-        updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: count, updatedAt: now }));
-        auditSafely_(now, r.id, '督促', 'system', '成功', count + '回目 段階 ' + r.currentStep);
-        summary.reminded++;
-      } catch (err) {
-        auditSafely_(now, r.id, '督促', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
-        summary.failed++;
-      }
-    });
-
-    selected.escalate.forEach(function (item) {
-      const r = item.request;
-      try {
-        const approver = r.route[r.currentStep - 1] ? r.route[r.currentStep - 1].approver : '（不明）';
-        sendMail_(buildAdminNoticeMail_(settings.adminEmail, '督促しても承認されていない申請 ' + r.id, [
-          '督促を ' + settings.maxReminders + ' 回送りましたが、まだ承認されていません。',
-          '承認者に直接連絡するか、承認ルールの見直しを検討してください。',
-          '',
-          '申請ID: ' + r.id,
-          '承認段階: ' + r.currentStep + ' / ' + r.totalSteps,
-          '承認者: ' + approver,
-        ]));
-        updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: settings.maxReminders + 1, updatedAt: now }));
-        auditSafely_(now, r.id, '管理者通知', 'system', '成功', '督促上限超過');
-        summary.escalated++;
-      } catch (err) {
-        auditSafely_(now, r.id, '管理者通知', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
-        summary.failed++;
-      }
-    });
-    return summary;
-  });
+    if (!code) throw err;
+    return { reminded: summary.reminded, escalated: summary.escalated, failed: summary.failed, error: code };
+  }
 }
 
 /** 署名用の鍵を作る（UUID 2つ分の乱数を16進で連結） */

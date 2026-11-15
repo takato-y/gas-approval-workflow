@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-15
+
+### Security
+
+- フォームのメールアドレスの収集を「確認済み（Verified）」にし、回答を組織内に限定することを導入の必須条件として明記（手入力では他人のアドレスで申請し、自己承認の防止をすり抜けられるため）
+- 設定シートに任意の「申請者ドメイン」を追加し、他のドメインのアドレスからの申請を拒否
+- 先頭が「=」「+」「-」「@」のメールアドレスを不正とし、申請者・承認者のメールアドレスもシートに書く前に無害化
+- 督促の関数で、操作者が実行権限の持ち主以外の利用者なら拒否し、前回から30分未満の呼び出しは何もしないように変更
+- スプレッドシートの編集者は鍵とトークンのシートに触れられるため承認を完全に操作できることを、権限設計と README に明記
+
+### Fixed
+
+- 承認・却下・受付で、状態の保存を排他制御の中で行い、メール送信はその後に行うように変更。送信に失敗しても状態は確定したまま、監査ログと管理者に知らせ、承認待ちは督促で回復する
+- 障害時の対応を導入・運用手順書に追加
+
+### Changed
+
+- README の冒頭に「Google の実環境では未検証」の注記を追加
+- 自動テストを75件に追加（TC-069〜TC-075）
+
 ## [1.0.0] - 2026-11-15
 
 ### Added
@@ -26,5 +46,6 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/takato-y/gas-approval-workflow/releases/tag/v1.0.0

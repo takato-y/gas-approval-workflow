@@ -1,6 +1,6 @@
 {
   "name": "gas-approval-workflow",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Google Apps Script による経費・備品購入申請の承認フロー（ポートフォリオ）",

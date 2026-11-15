@@ -124,7 +124,8 @@ test('TC-039 却下後の承認: 却下した申請に有効なトークンが�
   assert.match(env.sent.slice(-1)[0].body, /予算超過のため/);
   // 誤って同じ申請・段階のトークンを再発行してしまった場合を再現する
   const found = env.ctx.findRequest_('REQ-20261115-0001');
-  env.ctx.issueTokenAndNotify_(found.request, 1, env.ctx.readSettings_(), later(3), 0);
+  const issued = env.ctx.issueToken_(found.request, 1, env.ctx.readSettings_(), later(3), 0);
+  env.ctx.sendMail_(issued.mail);
   const again = env.decideAs('manager@example.com', env.tokenFor('manager@example.com'), 'approve', '', later(4));
   assert.equal(again.ok, false);
   assert.equal(lastAudit(env)[5], 'ALREADY_DECIDED');

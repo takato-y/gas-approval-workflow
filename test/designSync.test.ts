@@ -70,8 +70,8 @@ test('TC-087 督促: BUSY・INVALID_SETTING・FLUSH_FAILED は例外で終わら
   let calls = 0;
   const ss = fl.ctx.SpreadsheetApp as { flush(): void };
   const originalFlush = ss.flush.bind(ss);
-  // 督促1件ごとの flush（トークン行の確定）は通し、最後の flush だけ失敗させる
-  ss.flush = () => { calls++; if (calls === 2) flush.fail = true; try { originalFlush(); } finally { flush.fail = false; } };
+  // 督促・管理者通知の1件ごとの flush（記録の確定）は通し、その回の最後の flush（3回目）だけ失敗させる
+  ss.flush = () => { calls++; if (calls === 3) flush.fail = true; try { originalFlush(); } finally { flush.fail = false; } };
   const r3 = quietly(() => runReminders(fl, later(24)));
   assert.equal(r3.error, 'FLUSH_FAILED');
   assert.deepEqual(runFailures(fl).map((r) => r[5]), ['FLUSH_FAILED']);
@@ -165,4 +165,23 @@ test('TC-091 確認画面・確定: 申請の状態の値が壊れていれば A
   env.sheet('申請一覧').rows[1][COL.STATUS] = '承認済み';
   env.openAs('manager@example.com', token, later(1));
   assert.equal(env.audit().slice(-1)[0][5], 'ALREADY_DECIDED');
+});
+
+test('TC-096 現在段階の値が壊れている場合は、画面表示・確定とも STEP_MISMATCH。総段階の破損は確定で INVALID_STATE', () => {
+  const env = createEnv();
+  env.submitForm(formRow(), T0);
+  const token = env.tokenFor('manager@example.com');
+  env.sheet('申請一覧').rows[1][9] = 5; // 現在段階を範囲外に書き換える
+  const html = env.openAs('manager@example.com', token, later(1));
+  assert.match(html, /このリンクは無効です/);
+  assert.equal(env.audit().slice(-1)[0][2], '画面表示');
+  assert.equal(env.audit().slice(-1)[0][5], 'STEP_MISMATCH');
+  assert.equal(env.decideAs('manager@example.com', token, 'approve', '', later(1)).ok, false);
+  assert.equal(env.audit().slice(-1)[0][5], 'STEP_MISMATCH');
+  // 現在段階が一致していても総段階が壊れていれば、確定では状態遷移の検査で INVALID_STATE になる
+  env.sheet('申請一覧').rows[1][9] = 1;
+  env.sheet('申請一覧').rows[1][10] = 3;
+  const res = env.decideAs('manager@example.com', token, 'approve', '', later(1));
+  assert.equal(res.ok, false);
+  assert.equal(env.audit().slice(-1)[0][5], 'INVALID_STATE');
 });

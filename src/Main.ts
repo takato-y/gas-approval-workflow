@@ -148,11 +148,39 @@ function issueToken_(request: ApprovalRequest, step: number, settings: Settings,
   return { token, expiresAt, mail };
 }
 
-/** トークンを発行して記録し、承認依頼（または督促）メールを送る */
-function issueTokenAndNotify_(request: ApprovalRequest, step: number, settings: Settings, now: Date, reminderCount: number): { token: string; expiresAt: Date } {
-  const issued = issueToken_(request, step, settings, now, reminderCount);
-  sendMail_(issued.mail);
-  return { token: issued.token, expiresAt: issued.expiresAt };
+/** 承認依頼のトークンの発行を試みた結果（発行できなかった場合は error に原因を持つ） */
+interface IssueAttempt {
+  issued: { token: string; expiresAt: Date; mail: Mail } | null;
+  error: unknown;
+}
+
+/**
+ * 排他制御の中で承認依頼のトークンを発行して記録する（送信はしない）。
+ * 記録は withLock_ の flush でロックの解放前に確定し、送信は解放後に sendIssued_ で行う。
+ * 発行の失敗で、確定済みの登録・承認を失敗に変えないよう、例外は外に出さず結果に持たせる。
+ * @param settings 省略時は設定シートを読む（読めない場合も error に持たせる）
+ */
+function tryIssueToken_(request: ApprovalRequest, step: number, now: Date, settings?: Settings): IssueAttempt {
+  try {
+    return { issued: issueToken_(request, step, settings || readSettings_(), now, 0), error: null };
+  } catch (err) {
+    return { issued: null, error: err };
+  }
+}
+
+/** tryIssueToken_ で用意した承認依頼を送る。発行に失敗していた場合はその原因を投げる（notifySafely_ の中で呼ぶ） */
+function sendIssued_(attempt: IssueAttempt): void {
+  if (!attempt.issued) throw attempt.error;
+  sendMail_(attempt.issued.mail);
+}
+
+/** 督促・管理者通知の送信に失敗したとき、申請一覧の行を送信前の値に戻す（失敗は実行ログに残す） */
+function restoreRequestSafely_(rowNumber: number, original: ApprovalRequest): void {
+  try {
+    updateRequest_(rowNumber, original);
+  } catch (err) {
+    console.error('申請一覧の行を戻せませんでした: ' + original.id + ' / ' + (errorCode_(err) || 'UNEXPECTED'));
+  }
 }
 
 /** 設定不備などを管理者に知らせる（知らせられなくても本処理は止めない） */
@@ -173,7 +201,7 @@ function handleFormSubmit_(e: unknown, now: Date): string | null {
     throw err;
   }
   const range = e.range;
-  let registered: { request: ApprovalRequest; settings: Settings } | null = null;
+  let registered: { request: ApprovalRequest; attempt: IssueAttempt } | null = null;
   try {
     registered = withLock_(function () {
       // 鍵・URL の不備で「登録されたのに通知されない」申請を作らないよう、先に確かめる
@@ -189,7 +217,8 @@ function handleFormSubmit_(e: unknown, now: Date): string | null {
       });
       appendRequest_(request);
       auditSafely_(now, request.id, '受付', 'system', '成功', '承認経路: ' + route.map(function (r) { return r.approver; }).join(' → '));
-      return { request, settings };
+      // 承認依頼のトークン行も排他制御の中で記録し、登録と一緒に flush で確定してから送る
+      return { request, attempt: tryIssueToken_(request, 1, now, settings) };
     });
   } catch (err) {
     const code = errorCode_(err);
@@ -204,9 +233,9 @@ function handleFormSubmit_(e: unknown, now: Date): string | null {
     if (!code) throw err;
     return null;
   }
-  // 登録の後に通知する。通知に失敗しても登録は取り消さない（督促で新しいリンクが送られる）
+  // 登録とトークン行の確定の後に通知する。通知に失敗しても登録は取り消さない（督促で新しいリンクが送られる）
   const reg = registered;
-  notifySafely_(now, reg.request.id, function () { issueTokenAndNotify_(reg.request, 1, reg.settings, now, 0); });
+  notifySafely_(now, reg.request.id, function () { sendIssued_(reg.attempt); });
   return reg.request.id;
 }
 
@@ -316,13 +345,15 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
       }
       auditSafely_(now, requestId, type === ACTION.APPROVE ? '承認' : '却下', c.actor, '成功',
         '段階 ' + c.claims.step + '/' + request.totalSteps + (note ? ' コメントあり' : ''));
-      return { updated, next };
+      // 次の段階へ進む場合は、次の承認者のトークン行も排他制御の中で記録し、状態と一緒に flush で確定してから送る
+      const attempt = next.nextStep ? tryIssueToken_(updated, next.nextStep, now) : null;
+      return { updated, next, attempt };
     });
 
     const decidedLabel = done.next.status === STATUS.REJECTED ? '却下しました。' : '承認しました。';
-    if (done.next.nextStep) {
-      const nextStep = done.next.nextStep;
-      const sent = notifySafely_(now, requestId, function () { issueTokenAndNotify_(done.updated, nextStep, readSettings_(), now, 0); });
+    if (done.attempt) {
+      const attempt = done.attempt;
+      const sent = notifySafely_(now, requestId, function () { sendIssued_(attempt); });
       return { ok: true, message: decidedLabel + (sent ? '次の承認者に回しました。' : '次の承認者への通知に失敗したため、管理者に連絡しました。') };
     }
     const sent = notifySafely_(now, requestId, function () { sendMail_(buildResultMail_(done.updated, done.next.status, note)); });
@@ -381,11 +412,17 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
           // 古いリンクを失効させてから新しいリンクを作る（期限切れ対策と、出回るリンクを1本に保つため）
           revokeActiveTokens_(r.id);
           const issued = issueToken_(r, r.currentStep, settings, now, count);
-          // トークン行を確定させてからメールを送る（届いたリンクが「発行記録なし」にならないように）。
-          // 確定できなければ送らず、この申請の督促を失敗にする（最終通知日時を更新しないため次の見回りで再び督促する）
-          flushOrThrow_();
-          sendMail_(issued.mail);
+          // トークン行と督促回数・最終通知日時を確定させてからメールを送る（届いたリンクが「発行記録なし」にならず、
+          // 送った督促が次の見回りで重複しないように）。確定できない・送れない場合は申請一覧の行を戻し、
+          // この申請の督促を失敗にする（最終通知日時が古いままのため次の見回りで再び督促する）
           updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: count, updatedAt: now }));
+          try {
+            flushOrThrow_();
+            sendMail_(issued.mail);
+          } catch (sendErr) {
+            restoreRequestSafely_(item.rowNumber, r);
+            throw sendErr;
+          }
           auditSafely_(now, r.id, '督促', 'system', '成功', count + '回目 段階 ' + r.currentStep);
           summary.reminded++;
         } catch (err) {
@@ -398,15 +435,24 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
         const r = item.request;
         try {
           const approver = r.route[r.currentStep - 1] ? r.route[r.currentStep - 1].approver : '（不明）';
-          sendMail_(buildAdminNoticeMail_(settings.adminEmail, '督促しても承認されていない申請 ' + r.id, [
+          // 「知らせ済み」（督促回数 = 上限 + 1）を確定させてから送る（次の見回りで同じ知らせを重複させないため）。
+          // 確定できない・送れない場合は行を戻し、次の見回りで再び試す
+          updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: settings.maxReminders + 1, updatedAt: now }));
+          const notice = buildAdminNoticeMail_(settings.adminEmail, '督促しても承認されていない申請 ' + r.id, [
             '督促を ' + settings.maxReminders + ' 回送りましたが、まだ承認されていません。',
             '承認者に直接連絡するか、承認ルールの見直しを検討してください。',
             '',
             '申請ID: ' + r.id,
             '承認段階: ' + r.currentStep + ' / ' + r.totalSteps,
             '承認者: ' + approver,
-          ]));
-          updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: settings.maxReminders + 1, updatedAt: now }));
+          ]);
+          try {
+            flushOrThrow_();
+            sendMail_(notice);
+          } catch (sendErr) {
+            restoreRequestSafely_(item.rowNumber, r);
+            throw sendErr;
+          }
           auditSafely_(now, r.id, '管理者通知', 'system', '成功', '督促上限超過');
           summary.escalated++;
         } catch (err) {
@@ -425,8 +471,8 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
       // 督促メールは各申請のトークン行を確定してから送っているが、督促回数・最終通知日時・監査ログの行は
       // 反映されたか分からない。管理者に照合を依頼する
       notifyAdminSafely_('督促の保存を確認できませんでした', [
-        '書き込みの反映（flush）に失敗しました。申請一覧の督促回数・最終通知日時、承認トークン、監査ログを照合してください。',
-        '反映されていない申請は、次の見回りで再び督促されます。',
+        '書き込みの反映（flush）に失敗しました。督促・管理者通知のメールは、申請一覧と承認トークンの記録を確定してから送っています。',
+        '反映されていない可能性があるのは、監査ログの督促・管理者通知の行と、送信に失敗した申請の督促回数・最終通知日時の戻しです。申請一覧・承認トークン・監査ログを照合してください。',
         '日時: ' + now.toISOString(),
         '督促: ' + summary.reminded + '件 ／ 管理者通知: ' + summary.escalated + '件 ／ 失敗: ' + summary.failed + '件',
       ]);

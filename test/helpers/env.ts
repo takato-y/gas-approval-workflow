@@ -41,7 +41,7 @@ export interface Env {
   /** ここに入れた宛先へのメール送信は失敗する */
   mailFailTo: Set<string>;
   props: Map<string, string>;
-  lock: { held: boolean; acquired: number; released: number };
+  lock: { held: boolean; acquired: number; released: number; failRelease: boolean };
   user: { active: string; effective: string };
   scriptApp: ReturnType<typeof f.createFakeScriptApp>;
   formTrigger: f.FakeTrigger;

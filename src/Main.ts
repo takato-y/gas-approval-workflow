@@ -70,12 +70,30 @@ function withLock_<T>(fn: () => T): T {
   try {
     return fn();
   } finally {
-    lock.releaseLock();
+    // 解放の失敗で、保存済みの処理結果を失敗に変えない（失敗は実行ログに残す）
+    try {
+      lock.releaseLock();
+    } catch (releaseErr) {
+      console.error('ロックの解放に失敗しました: ' + (errorCode_(releaseErr) || 'UNEXPECTED'));
+    }
   }
 }
 
 function audit_(now: Date, requestId: string, operation: string, actor: string, result: string, detail: string): void {
   appendAudit_({ at: now, requestId, operation, actor, result, detail });
+}
+
+/**
+ * 状態を保存した後の記録（失敗しても例外を外に出さない）。
+ * 保存済みの成功を、記録の失敗で利用者向けの失敗に変えないために使う。記録できなかったことは実行ログに残す。
+ */
+function auditSafely_(now: Date, requestId: string, operation: string, actor: string, result: string, detail: string): void {
+  try {
+    audit_(now, requestId, operation, actor, result, detail);
+  } catch (err) {
+    console.error('監査ログに記録できませんでした: ' + [requestId, operation, result, detail].join(' / ') +
+      ' / ' + (errorCode_(err) || 'UNEXPECTED'));
+  }
 }
 
 /** トークンを発行して記録し、承認依頼（または督促）メールを送る */
@@ -126,7 +144,7 @@ function handleFormSubmit_(e: unknown, now: Date): string | null {
         route, lastNotifiedAt: now, reminderCount: 0, updatedAt: now,
       });
       appendRequest_(request);
-      audit_(now, request.id, '受付', 'system', '成功', '承認経路: ' + route.map(function (r) { return r.approver; }).join(' → '));
+      auditSafely_(now, request.id, '受付', 'system', '成功', '承認経路: ' + route.map(function (r) { return r.approver; }).join(' → '));
       return { request, settings };
     });
   } catch (err) {
@@ -162,11 +180,7 @@ function notifySafely_(now: Date, requestId: string, send: () => void): boolean 
     const code = errorCode_(err) || 'UNEXPECTED';
     // 失敗の記録・連絡も失敗しうる（シートへの追記の失敗など）。状態は保存済みのため、
     // ここでは例外を外に出さず、記録できなかったことを実行ログに残すだけにする
-    try {
-      audit_(now, requestId, '通知', 'system', '失敗', code);
-    } catch (auditErr) {
-      console.error('監査ログに通知の失敗を記録できませんでした: ' + requestId + ' ' + code + ' / ' + (errorCode_(auditErr) || 'UNEXPECTED'));
-    }
+    auditSafely_(now, requestId, '通知', 'system', '失敗', code);
     notifyAdminSafely_('通知メールを送れませんでした ' + requestId, [
       '申請の状態は更新済みです。理由コード: ' + code,
       '承認待ちの申請は督促で新しいリンクが送られます。結果の通知が届いていない場合は、申請者に直接連絡してください。',
@@ -192,6 +206,8 @@ function loadDecisionContext_(token: unknown, activeUserEmail: unknown, now: Dat
   const found = findRequest_(claims.rid);
   if (!found) throw approvalError_('REQUEST_NOT_FOUND', '申請が見つかりません');
   if (found.request.status !== STATUS.PENDING) throw approvalError_('ALREADY_DECIDED', '処理済みの申請です');
+  // 前の段階のトークンが「有効」のまま残っていた場合も、確認画面を出さずに止める
+  if (found.request.currentStep !== claims.step) throw approvalError_('STEP_MISMATCH', '現在の承認段階ではありません');
   return { claims, tokenRow: row, actor, found };
 }
 
@@ -234,10 +250,18 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
         updated.lastNotifiedAt = now;
         updated.reminderCount = 0;
       }
-      // トークンの使用済みと状態の更新は排他制御の中で行う。メール送信は排他制御の外で行う
-      markTokenUsed_(c.tokenRow.rowNumber, now);
+      // 申請の状態の更新を確定の時点とする（ここで失敗した場合だけ利用者に失敗を返す）。
+      // 以降の「トークンを使用済みにする」「監査ログに記録する」は失敗しても確定を取り消さない。
+      // トークンが「有効」のまま残っても、申請の状態と段階の確認（ALREADY_DECIDED・STEP_MISMATCH）で再利用は拒否される。
+      // メール送信は排他制御の外で行う
       updateRequest_(c.found.rowNumber, updated);
-      audit_(now, requestId, type === ACTION.APPROVE ? '承認' : '却下', c.actor, '成功',
+      try {
+        markTokenUsed_(c.tokenRow.rowNumber, now);
+      } catch (markErr) {
+        console.error('トークンを使用済みにできませんでした: ' + requestId + ' / ' + (errorCode_(markErr) || 'UNEXPECTED'));
+        auditSafely_(now, requestId, 'トークン更新', 'system', '失敗', errorCode_(markErr) || 'UNEXPECTED');
+      }
+      auditSafely_(now, requestId, type === ACTION.APPROVE ? '承認' : '却下', c.actor, '成功',
         '段階 ' + c.claims.step + '/' + request.totalSteps + (note ? ' コメントあり' : ''));
       return { updated, next };
     });
@@ -288,10 +312,10 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
         revokeActiveTokens_(r.id);
         issueTokenAndNotify_(r, r.currentStep, settings, now, count);
         updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: count, updatedAt: now }));
-        audit_(now, r.id, '督促', 'system', '成功', count + '回目 段階 ' + r.currentStep);
+        auditSafely_(now, r.id, '督促', 'system', '成功', count + '回目 段階 ' + r.currentStep);
         summary.reminded++;
       } catch (err) {
-        audit_(now, r.id, '督促', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
+        auditSafely_(now, r.id, '督促', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
         summary.failed++;
       }
     });
@@ -309,10 +333,10 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
           '承認者: ' + approver,
         ]));
         updateRequest_(item.rowNumber, Object.assign({}, r, { lastNotifiedAt: now, reminderCount: settings.maxReminders + 1, updatedAt: now }));
-        audit_(now, r.id, '管理者通知', 'system', '成功', '督促上限超過');
+        auditSafely_(now, r.id, '管理者通知', 'system', '成功', '督促上限超過');
         summary.escalated++;
       } catch (err) {
-        audit_(now, r.id, '管理者通知', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
+        auditSafely_(now, r.id, '管理者通知', 'system', '失敗', errorCode_(err) || 'UNEXPECTED');
         summary.failed++;
       }
     });
@@ -346,6 +370,6 @@ function handleSetup_(now: Date): string[] {
     ScriptApp.newTrigger(HANDLERS.REMINDER).timeBased().everyHours(1).create();
     created.push('督促トリガー（1時間ごと）');
   }
-  audit_(now, '', '初期設定', admin, '成功', created.join('・'));
+  auditSafely_(now, '', '初期設定', admin, '成功', created.join('・'));
   return created;
 }

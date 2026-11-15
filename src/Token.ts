@@ -111,7 +111,7 @@ function checkTokenRecord_(record: TokenRecord | null | undefined, claims: Token
   if (record.requestId !== claims.rid || Number(record.step) !== claims.step) {
     throw approvalError_('TOKEN_MISMATCH', 'トークンと記録が一致しません');
   }
-  const expiresAt = record.expiresAt instanceof Date ? record.expiresAt.getTime() : new Date(String(record.expiresAt)).getTime();
+  const expiresAt = toMillis_(record.expiresAt);
   if (!Number.isFinite(expiresAt) || nowMs >= expiresAt) throw approvalError_('TOKEN_EXPIRED', 'トークンの有効期限が切れています');
 }
 

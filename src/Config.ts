@@ -82,6 +82,13 @@ function errorCode_(err: unknown): string | null {
   return null;
 }
 
+/** 日時（Date または日時の文字列）をミリ秒にする。読めなければ NaN */
+function toMillis_(value: unknown): number {
+  if (value && typeof (value as Date).getTime === 'function') return (value as Date).getTime();
+  if (value === '' || value == null) return NaN;
+  return new Date(String(value)).getTime();
+}
+
 /** メールアドレスを比較用に正規化する（前後の空白除去・小文字化） */
 function normalizeEmail_(value: unknown): string {
   return String(value == null ? '' : value).trim().toLowerCase();

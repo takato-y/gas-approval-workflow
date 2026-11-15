@@ -39,11 +39,29 @@ function assertFormSubmitEvent_(e: unknown): asserts e is { triggerUid: string; 
   }
 }
 
-/** 時間主導トリガーのイベントの中身を確かめる */
+/**
+ * 時間主導トリガーのイベントの中身を確かめる。
+ *
+ * 画面（google.script.run）からは日時を渡せないが、数値の year・hour を持つ普通のオブジェクトは渡せるため、
+ * イベントの形だけでは画面からの呼び出しと区別しきれない。そこで次も確かめる。
+ * - 操作者が、実行権限の持ち主（トリガーを作った管理者）以外の利用者なら拒否する。
+ *   インストール型トリガーは作成者のアカウントで動くため、トリガーからの実行では
+ *   操作者は空か作成者本人になる。ウェブアプリを開いた社員からの呼び出しはここで止まる。
+ */
 function assertTimeEvent_(e: unknown, handlerName: string): void {
   assertTriggerEvent_(e, handlerName);
   if (typeof e.year !== 'number' || typeof e.hour !== 'number') {
     throw approvalError_('UNTRUSTED_CALLER', '時間主導トリガーのイベントではありません');
+  }
+  assertNotOtherUser_();
+}
+
+/** 操作者が、実行権限の持ち主と異なる利用者なら拒否する（操作者が空の場合は通す） */
+function assertNotOtherUser_(): void {
+  const active = normalizeEmail_(Session.getActiveUser().getEmail());
+  const effective = normalizeEmail_(Session.getEffectiveUser().getEmail());
+  if (active !== '' && active !== effective) {
+    throw approvalError_('UNTRUSTED_CALLER', 'トリガーの実行者以外からの呼び出しです');
   }
 }
 

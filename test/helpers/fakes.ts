@@ -146,10 +146,15 @@ export function createFakeProperties(initial?: Record<string, string>) {
 
 /** 排他制御の偽物。held を true にすると「他の処理が実行中」を再現する */
 export function createFakeLock() {
-  const state = { held: false, acquired: 0, released: 0 };
+  // failRelease を true にすると、解放は行ったうえで例外を投げる（解放の失敗の再現）
+  const state = { held: false, acquired: 0, released: 0, failRelease: false };
   const lock = {
     tryLock(): boolean { if (state.held) return false; state.held = true; state.acquired++; return true; },
-    releaseLock(): void { state.held = false; state.released++; },
+    releaseLock(): void {
+      state.held = false;
+      state.released++;
+      if (state.failRelease) throw new Error('fake: release failed');
+    },
   };
   return { LockService: { getScriptLock: () => lock }, state };
 }

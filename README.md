@@ -1,5 +1,10 @@
 # 経費・備品購入申請の承認フロー（Google Apps Script）
 
+[![test](https://github.com/takato-y/gas-approval-workflow/actions/workflows/test.yml/badge.svg)](https://github.com/takato-y/gas-approval-workflow/actions/workflows/test.yml)
+
+- GitHub Actions で検査している範囲：型検査と自動テスト（node --test。GAS の API は差し替えで再現）
+- 手元の環境でのみ確かめた範囲：なし。Google 環境（スプレッドシート・フォーム・ウェブアプリ・トリガー・メール送信）での動作は未実施（テスト仕様書 3 章）
+
 本リポジトリはポートフォリオ（閲覧用）です。無断での再利用・再配布はご遠慮ください。
 
 経費の立替精算や備品購入の申請を、Google フォームから送るだけで、社内規程に沿った承認者へ自動で回し、承認・却下の結果を申請者へ知らせる仕組みです。紙の申請書やメールでの承認で起きていた「誰の所で止まっているか分からない」「承認者を間違えて差し戻し」「同じ申請を二度処理」をなくすことを目的としています。

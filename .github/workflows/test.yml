@@ -1,0 +1,26 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# テストはリポジトリを読むだけなので、トークンの権限を読み取りに限定する
+permissions:
+  contents: read
+
+# Google 環境（スプレッドシート・フォーム・メール送信）での確認は対象外。
+# GAS の API は test/ の差し替え（モック）で再現している。
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # テストは .ts を node で直接実行するため、package.json の engines（>=22.18）に合わせる
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

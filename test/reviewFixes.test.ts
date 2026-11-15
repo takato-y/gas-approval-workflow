@@ -135,7 +135,10 @@ test('TC-077 督促: 設定が壊れていて実行できなかった回は「�
   const settings = env.sheet('設定');
   const saved = settings.rows.map((r) => r.slice());
   settings.rows = settings.rows.filter((r) => r[0] !== '管理者メール');
-  assert.throws(() => runReminders(env, later(24)), { code: 'INVALID_SETTING' });
+  // v1.0.5 から、例外で終わらず監査ログに「督促・失敗」を記録する（TC-087）
+  const failed = runReminders(env, later(24));
+  assert.equal(failed.error, 'INVALID_SETTING');
+  assert.ok(env.audit().some((r) => r[2] === '督促' && r[4] === '失敗' && r[5] === 'INVALID_SETTING'));
   assert.equal(env.props.has('REMINDER_LAST_RUN_AT'), false);
   assert.equal(env.lock.acquired, env.lock.released);
   // 設定を直せば、30分以内でもすぐに督促できる

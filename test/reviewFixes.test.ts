@@ -101,7 +101,52 @@ test('TC-074 申請受付で承認依頼の送信に失敗しても申請は登�
   assert.equal(env.decideAs('manager@example.com', env.tokenFor('manager@example.com'), 'approve', '', later(25)).ok, true);
 });
 
-test('TC-075 結果の通知に失敗しても状態は確定し、利用者には「管理者に連絡した」と返す', () => {
+test('TC-076 通知の失敗を監査ログに記録できなくても、確定済みの結果を返す', () => {
+  const env = createEnv();
+  env.submitForm(formRow(), T0);
+  env.mailFailTo.add('staff@example.com');
+  const audit = env.sheet('監査ログ');
+  const original = audit.appendRow.bind(audit);
+  // 「通知・失敗」の行の追記だけを失敗させる（シートへの追記の失敗を再現）
+  audit.appendRow = (row) => {
+    if (row[2] === '通知') throw new Error('fake: append failed');
+    return original(row);
+  };
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const res = env.decideAs('manager@example.com', env.tokenFor('manager@example.com'), 'reject', '予算外', later(1));
+    assert.equal(res.ok, true);
+    assert.match(res.message, /却下しました。申請者への通知に失敗/);
+  } finally {
+    console.error = quiet;
+    audit.appendRow = original;
+  }
+  assert.equal(env.requests()[0][COL.STATUS], '却下');
+  assert.equal(env.tokens()[0][7], '使用済み');
+  assert.equal(env.sent.slice(-1)[0].to, 'admin@example.com', '管理者への連絡は続けて行う');
+  assert.ok(!env.audit().some((r) => r[2] === '通知'));
+  assert.ok(!env.audit().some((r) => r[2] === '拒否'), '利用者への失敗の返答（拒否）になっていない');
+});
+
+test('TC-077 督促: 設定が壊れていて実行できなかった回は「実行済み」として記録しない', () => {
+  const env = createEnv();
+  env.submitForm(formRow(), T0);
+  const settings = env.sheet('設定');
+  const saved = settings.rows.map((r) => r.slice());
+  settings.rows = settings.rows.filter((r) => r[0] !== '管理者メール');
+  assert.throws(() => runReminders(env, later(24)), { code: 'INVALID_SETTING' });
+  assert.equal(env.props.has('REMINDER_LAST_RUN_AT'), false);
+  assert.equal(env.lock.acquired, env.lock.released);
+  // 設定を直せば、30分以内でもすぐに督促できる
+  settings.rows = saved;
+  const res = runReminders(env, new Date(later(24).getTime() + 5 * 60 * 1000));
+  assert.equal(res.skipped, undefined);
+  assert.equal(res.reminded, 1);
+  assert.ok(env.props.has('REMINDER_LAST_RUN_AT'));
+});
+
+test('TC-075結果の通知に失敗しても状態は確定し、利用者には「管理者に連絡した」と返す', () => {
   const env = createEnv();
   env.submitForm(formRow(), T0);
   env.mailFailTo.add('staff@example.com');

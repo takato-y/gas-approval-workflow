@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-15
+
+### Fixed
+
+- 通知の失敗を監査ログに記録できなかった場合も例外を外に出さず、確定済みの結果を利用者に返すように修正（記録できなかったことは実行ログに残す）
+- 督促で、設定の読み取りに失敗した回を「実行済み」として記録しないように修正（最終実行日時は設定の読み取り後、メール送信の前に記録する）
+- 自動テストを77件に追加（TC-076・TC-077）
+
 ## [1.0.1] - 2026-11-15
 
 ### Security
@@ -46,6 +54,7 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/takato-y/gas-approval-workflow/releases/tag/v1.0.0

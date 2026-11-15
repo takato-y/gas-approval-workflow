@@ -4,7 +4,7 @@
   "private": true,
   "description": "Google Apps Script による経費・備品購入申請の承認フロー（ポートフォリオ）",
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test \"test/*.test.js\""
   },
   "engines": {
     "node": ">=20"

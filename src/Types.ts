@@ -83,7 +83,7 @@ interface TokenRecord {
   status: string;
 }
 
-/** 暗号処理の窓口（GAS では Utilities、テストでは Node.js の crypto を使う偽物） */
+/** 暗号処理の窓口（GAS では Utilities、テストでは Node.js の crypto を使う代替部品） */
 interface CryptoAdapter {
   hmac(message: string, secret: string): string;
   encode(text: string): string;

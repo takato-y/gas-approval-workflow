@@ -60,7 +60,7 @@ function buildReminderMail_(request: ApprovalRequest, approver: string, link: st
   return mail;
 }
 
-/** 管理者への知らせ（督促の上限超過・設定不備など） */
+/** 管理者への知らせ（督促の上限到達・設定不備など） */
 function buildAdminNoticeMail_(adminEmail: string, subject: string, lines: string[]): Mail {
   return { to: adminEmail, subject: '【管理者確認】' + subject, body: lines.join('\n') };
 }

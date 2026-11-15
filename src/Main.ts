@@ -39,7 +39,7 @@ function submitDecision(token: unknown, nonce: unknown, decision: unknown, comme
   return handleDecision_(token, nonce, decision, comment, Session.getActiveUser().getEmail(), new Date());
 }
 
-/** 時間主導トリガー（1時間ごと）: 承認待ちの督促と、上限超過の管理者への知らせ */
+/** 時間主導トリガー（1時間ごと）: 承認待ちの督促と、上限に達した申請の管理者への知らせ */
 function sendReminders(e: unknown): { reminded: number; escalated: number; failed: number; skipped?: boolean; error?: string } {
   return handleReminders_(e, new Date());
 }

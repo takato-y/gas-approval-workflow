@@ -160,7 +160,13 @@ function notifySafely_(now: Date, requestId: string, send: () => void): boolean 
     return true;
   } catch (err) {
     const code = errorCode_(err) || 'UNEXPECTED';
-    audit_(now, requestId, '通知', 'system', '失敗', code);
+    // 失敗の記録・連絡も失敗しうる（シートへの追記の失敗など）。状態は保存済みのため、
+    // ここでは例外を外に出さず、記録できなかったことを実行ログに残すだけにする
+    try {
+      audit_(now, requestId, '通知', 'system', '失敗', code);
+    } catch (auditErr) {
+      console.error('監査ログに通知の失敗を記録できませんでした: ' + requestId + ' ' + code + ' / ' + (errorCode_(auditErr) || 'UNEXPECTED'));
+    }
     notifyAdminSafely_('通知メールを送れませんでした ' + requestId, [
       '申請の状態は更新済みです。理由コード: ' + code,
       '承認待ちの申請は督促で新しいリンクが送られます。結果の通知が届いていない場合は、申請者に直接連絡してください。',
@@ -267,8 +273,10 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
     if (Number.isFinite(last) && last > 0 && now.getTime() - last < REMINDER_MIN_INTERVAL_MS) {
       return { reminded: 0, escalated: 0, failed: 0, skipped: true };
     }
-    props.setProperty(PROP_KEYS.REMINDER_LAST_RUN, String(now.getTime()));
+    // 設定を読めた場合だけ「実行した」と記録する（設定の不備で何もしなかった回を実行済みにしない）。
+    // 記録はメール送信の前に行い、送信中に再び呼ばれても最短間隔が効くようにする
     const settings = readSettings_();
+    props.setProperty(PROP_KEYS.REMINDER_LAST_RUN, String(now.getTime()));
     const selected = selectReminders_(listPendingRequests_(), now.getTime(), settings);
     const summary = { reminded: 0, escalated: 0, failed: 0 };
 

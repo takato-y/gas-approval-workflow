@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-11-16
+
+### Added
+
+- README の冒頭に承認画面の操作の様子の GIF（docs/images/demo.gif）を追加し、package.json の版を 1.0.6 にそろえた
+
 ## [1.0.5] - 2026-11-16
 
 ### Added
@@ -109,7 +115,8 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.2...v1.0.3

@@ -103,7 +103,11 @@ export class FakeSheet {
   body(): Cell[][] { return this.rows.slice(1); }
 }
 
-export function createFakeSpreadsheet(sheets: Record<string, Cell[][]>) {
+/**
+ * スプレッドシートの偽物。flush は呼ばれた順を events に記録する。
+ * flushState.fail を true にすると flush が例外を投げる（反映の失敗の再現）。
+ */
+export function createFakeSpreadsheet(sheets: Record<string, Cell[][]>, events: string[] = []) {
   const map = new Map(Object.entries(sheets).map(([name, rows]) => [name, new FakeSheet(name, rows)]));
   const ss = {
     getSheetByName: (name: string) => map.get(name) || null,
@@ -113,7 +117,16 @@ export function createFakeSpreadsheet(sheets: Record<string, Cell[][]>) {
       return s;
     },
   };
-  return { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, ss };
+  const flushState = { calls: 0, fail: false };
+  const SpreadsheetApp = {
+    getActiveSpreadsheet: () => ss,
+    flush() {
+      flushState.calls++;
+      events.push('flush');
+      if (flushState.fail) throw new Error('fake: flush failed');
+    },
+  };
+  return { SpreadsheetApp, ss, flushState };
 }
 
 export interface SentMail { to: string; subject: string; body: string; name?: string }
@@ -145,14 +158,21 @@ export function createFakeProperties(initial?: Record<string, string>) {
 }
 
 /** 排他制御の偽物。held を true にすると「他の処理が実行中」を再現する */
-export function createFakeLock() {
+export function createFakeLock(events: string[] = []) {
   // failRelease を true にすると、解放は行ったうえで例外を投げる（解放の失敗の再現）
   const state = { held: false, acquired: 0, released: 0, failRelease: false };
   const lock = {
-    tryLock(): boolean { if (state.held) return false; state.held = true; state.acquired++; return true; },
+    tryLock(): boolean {
+      if (state.held) return false;
+      state.held = true;
+      state.acquired++;
+      events.push('acquire');
+      return true;
+    },
     releaseLock(): void {
       state.held = false;
       state.released++;
+      events.push('release');
       if (state.failRelease) throw new Error('fake: release failed');
     },
   };

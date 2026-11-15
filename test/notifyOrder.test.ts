@@ -125,6 +125,12 @@ test('TC-095 督促: 督促回数・最終通知日時もトークン行と一�
   assert.equal(r.failed, 1);
   assert.equal(fail.requests()[0][COL.COUNT], 0, '督促回数を戻す');
   assert.equal((fail.requests()[0][COL.LAST] as Date).getTime(), T0.getTime(), '最終通知日時を戻す');
+  // 次の見回りで再び督促される
+  fail.mailFailTo.delete('manager@example.com');
+  const again = runReminders(fail, later(25));
+  assert.equal(again.reminded, 1);
+  assert.equal(fail.requests()[0][COL.COUNT], 1);
+  assert.ok(fail.sent.some((m) => m.to === 'manager@example.com' && /督促1回目/.test(m.subject)));
 });
 
 test('TC-097 送れなかった承認依頼・督促の新しいトークンは失効させる（古いトークンは有効に戻さない）', () => {
@@ -157,4 +163,55 @@ test('TC-097 送れなかった承認依頼・督促の新しいトークンは�
   assert.equal(res.ok, true);
   assert.equal(dec.requests()[0][COL.STEP], 2);
   assert.deepEqual(dec.tokens().map((t) => t[TOKEN_STATUS_COL]), ['使用済み', '失効']);
+});
+
+test('TC-098 送信失敗後の戻し・失効に失敗したら、監査ログに理由コードを残し管理者に照合を依頼する', () => {
+  const adminNotices = (env: Env, re: RegExp) => env.sent.filter((m) => m.to === 'admin@example.com' && re.test(m.subject));
+  /** n 回目以降の申請一覧の書き込み（戻し）を失敗させる */
+  const failUpdateFrom = (env: Env, n: number) => {
+    const original = env.ctx.updateRequest_;
+    let calls = 0;
+    env.ctx.updateRequest_ = (row: number, r: unknown) => { calls++; if (calls >= n) throw new Error('fake: write failed'); return original(row, r); };
+  };
+
+  // 督促: 送信に失敗し、督促回数・最終通知日時の戻しにも失敗した
+  const rem = createEnv();
+  rem.submitForm(formRow(), T0);
+  rem.mailFailTo.add('manager@example.com');
+  failUpdateFrom(rem, 2);
+  quietly(() => runReminders(rem, later(24)));
+  assert.ok(rem.audit().some((r) => r[2] === '督促' && r[1] === 'REQ-20261115-0001' && r[5] === 'RESTORE_FAILED'));
+  const n1 = adminNotices(rem, /申請の記録を戻せませんでした REQ-20261115-0001/);
+  assert.equal(n1.length, 1);
+  assert.match(n1[0].body, /督促回数/);
+  assert.doesNotMatch(n1[0].body, /\?t=/, 'リンク（トークン）を載せない');
+
+  // 管理者通知: 送信に失敗し、督促回数（上限＋1）の戻しにも失敗した
+  const esc = createEnv();
+  esc.submitForm(formRow(), T0);
+  esc.sheet('申請一覧').rows[1][COL.COUNT] = 3;
+  esc.mailFailTo.add('admin@example.com');
+  failUpdateFrom(esc, 2);
+  quietly(() => runReminders(esc, later(24)));
+  assert.ok(esc.audit().some((r) => r[2] === '管理者通知' && r[5] === 'RESTORE_FAILED'));
+
+  // 督促: 送れなかった新しいトークンの失効に失敗した
+  const rev = createEnv();
+  rev.submitForm(formRow(), T0);
+  rev.mailFailTo.add('manager@example.com');
+  rev.ctx.revokeToken_ = () => { throw new Error('fake: write failed'); };
+  quietly(() => runReminders(rev, later(24)));
+  assert.ok(rev.audit().some((r) => r[2] === '督促' && r[5] === 'REVOKE_FAILED'));
+  assert.equal(adminNotices(rev, /送れなかったリンクを失効できませんでした REQ-20261115-0001/).length, 1);
+
+  // 受付: 承認依頼を送れず、その後の失効の排他制御を取れなかった
+  const sub = createEnv();
+  sub.mailFailTo.add('manager@example.com');
+  const mailApp = sub.ctx.MailApp as { sendEmail(m: { to: string }): void };
+  const send = mailApp.sendEmail.bind(mailApp);
+  mailApp.sendEmail = (m: { to: string }) => { try { send(m); } finally { if (m.to === 'manager@example.com') sub.lock.held = true; } };
+  quietly(() => sub.submitForm(formRow(), T0));
+  sub.lock.held = false;
+  assert.ok(sub.audit().some((r) => r[2] === '通知' && r[5] === 'REVOKE_FAILED'));
+  assert.equal(adminNotices(sub, /送れなかったリンクを失効できませんでした REQ-20261115-0001/).length, 1);
 });

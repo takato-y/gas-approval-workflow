@@ -1,0 +1,17 @@
+# 依存パッケージ・生成物
+node_modules/
+coverage/
+*.log
+
+# clasp の接続情報（scriptId を含むため公開しない）
+.clasp.json
+.clasprc.json
+
+# 図の描画確認用の出力
+docs/_render/
+
+# OS・エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

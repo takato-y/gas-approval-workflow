@@ -12,6 +12,8 @@
  */
 
 const LOCK_WAIT_MS = 10000;
+/** 督促の最短間隔（1時間ごとのトリガーの実行時刻のずれを見込んで30分） */
+const REMINDER_MIN_INTERVAL_MS = 30 * 60 * 1000;
 const HANDLERS: { FORM: string; REMINDER?: string } = Object.freeze({ FORM: 'onFormSubmit', REMINDER: 'sendReminders' });
 
 /* ===================== 公開関数 ===================== */
@@ -109,22 +111,23 @@ function handleFormSubmit_(e: unknown, now: Date): string | null {
     throw err;
   }
   const range = e.range;
+  let registered: { request: ApprovalRequest; settings: Settings } | null = null;
   try {
-    return withLock_(function () {
+    registered = withLock_(function () {
       // 鍵・URL の不備で「登録されたのに通知されない」申請を作らないよう、先に確かめる
       assertSecret_(getSecret_());
       getWebAppUrl_();
       const settings = readSettings_();
       const input = parseFormResponse_(range.getValues()[0] as CellValue[]);
+      assertApplicantDomain_(input.applicant, settings);
       const route = resolveApprovalRoute_(input, readRules_(), settings);
       const request: ApprovalRequest = Object.assign({}, input, {
         id: nextRequestId_(now), status: STATUS.PENDING, currentStep: 1, totalSteps: route.length,
         route, lastNotifiedAt: now, reminderCount: 0, updatedAt: now,
       });
       appendRequest_(request);
-      issueTokenAndNotify_(request, 1, settings, now, 0);
       audit_(now, request.id, '受付', 'system', '成功', '承認経路: ' + route.map(function (r) { return r.approver; }).join(' → '));
-      return request.id;
+      return { request, settings };
     });
   } catch (err) {
     const code = errorCode_(err);
@@ -132,6 +135,37 @@ function handleFormSubmit_(e: unknown, now: Date): string | null {
     notifyAdminSafely_('申請を受け付けられませんでした', ['理由コード: ' + (code || 'UNEXPECTED'), 'フォームの回答シートの最終行を確認してください。']);
     if (!code) throw err;
     return null;
+  }
+  // 登録の後に通知する。通知に失敗しても登録は取り消さない（督促で新しいリンクが送られる）
+  const reg = registered;
+  notifySafely_(now, reg.request.id, function () { issueTokenAndNotify_(reg.request, 1, reg.settings, now, 0); });
+  return reg.request.id;
+}
+
+/** 申請者のメールアドレスが、設定した申請者ドメインのものかを確かめる（未設定なら確かめない） */
+function assertApplicantDomain_(applicant: string, settings: Pick<Settings, 'applicantDomain'>): void {
+  if (settings.applicantDomain && !normalizeEmail_(applicant).endsWith('@' + settings.applicantDomain)) {
+    throw approvalError_('INVALID_APPLICANT', '申請者ドメイン以外のメールアドレスです');
+  }
+}
+
+/**
+ * 状態を書いた後の通知を行う。失敗しても状態は戻さず、監査ログと管理者に知らせる。
+ * 承認待ちの申請は、督促（最後の通知から督促開始時間の経過後）で新しいリンクが送られて回復する。
+ * @return 通知できたら true
+ */
+function notifySafely_(now: Date, requestId: string, send: () => void): boolean {
+  try {
+    send();
+    return true;
+  } catch (err) {
+    const code = errorCode_(err) || 'UNEXPECTED';
+    audit_(now, requestId, '通知', 'system', '失敗', code);
+    notifyAdminSafely_('通知メールを送れませんでした ' + requestId, [
+      '申請の状態は更新済みです。理由コード: ' + code,
+      '承認待ちの申請は督促で新しいリンクが送られます。結果の通知が届いていない場合は、申請者に直接連絡してください。',
+    ]);
+    return false;
   }
 }
 
@@ -179,7 +213,7 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
     const note = String(comment == null ? '' : comment).trim().slice(0, LIMITS.COMMENT_MAX_LENGTH);
     if (type === ACTION.REJECT && note === '') throw approvalError_('COMMENT_REQUIRED', '却下の理由が必要です');
 
-    return withLock_(function (): DecisionResult {
+    const done = withLock_(function () {
       // 排他制御の中で読み直してから判定する（同時に押された場合の二重処理を防ぐ）
       const c = loadDecisionContext_(token, activeUserEmail, now);
       requestId = c.claims.rid;
@@ -194,19 +228,22 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
         updated.lastNotifiedAt = now;
         updated.reminderCount = 0;
       }
-      // 先にトークンを使用済みにし、続けて状態を書く（どちらも排他制御の中）
+      // トークンの使用済みと状態の更新は排他制御の中で行う。メール送信は排他制御の外で行う
       markTokenUsed_(c.tokenRow.rowNumber, now);
       updateRequest_(c.found.rowNumber, updated);
       audit_(now, requestId, type === ACTION.APPROVE ? '承認' : '却下', c.actor, '成功',
         '段階 ' + c.claims.step + '/' + request.totalSteps + (note ? ' コメントあり' : ''));
-
-      if (next.nextStep) {
-        issueTokenAndNotify_(updated, next.nextStep, readSettings_(), now, 0);
-        return { ok: true, message: '承認しました。次の承認者に回しました。' };
-      }
-      sendMail_(buildResultMail_(updated, next.status, note));
-      return { ok: true, message: next.status === STATUS.APPROVED ? '承認しました。申請者に通知しました。' : '却下しました。申請者に通知しました。' };
+      return { updated, next };
     });
+
+    const decidedLabel = done.next.status === STATUS.REJECTED ? '却下しました。' : '承認しました。';
+    if (done.next.nextStep) {
+      const nextStep = done.next.nextStep;
+      const sent = notifySafely_(now, requestId, function () { issueTokenAndNotify_(done.updated, nextStep, readSettings_(), now, 0); });
+      return { ok: true, message: decidedLabel + (sent ? '次の承認者に回しました。' : '次の承認者への通知に失敗したため、管理者に連絡しました。') };
+    }
+    const sent = notifySafely_(now, requestId, function () { sendMail_(buildResultMail_(done.updated, done.next.status, note)); });
+    return { ok: true, message: decidedLabel + (sent ? '申請者に通知しました。' : '申請者への通知に失敗したため、管理者に連絡しました。') };
   } catch (err) {
     const code = errorCode_(err);
     if (!code) throw err;
@@ -216,7 +253,7 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
 }
 
 /** FN-009 督促の実行。1件の失敗で他の申請の督促を止めない */
-function handleReminders_(e: unknown, now: Date): { reminded: number; escalated: number; failed: number } {
+function handleReminders_(e: unknown, now: Date): { reminded: number; escalated: number; failed: number; skipped?: boolean } {
   try {
     assertTimeEvent_(e, 'sendReminders');
   } catch (err) {
@@ -224,6 +261,13 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
     throw err;
   }
   return withLock_(function () {
+    // 前回の実行から短時間なら何もしない（想定外の経路で何度呼ばれても、督促を早めたり増やしたりしない）
+    const props = PropertiesService.getScriptProperties();
+    const last = Number(props.getProperty(PROP_KEYS.REMINDER_LAST_RUN));
+    if (Number.isFinite(last) && last > 0 && now.getTime() - last < REMINDER_MIN_INTERVAL_MS) {
+      return { reminded: 0, escalated: 0, failed: 0, skipped: true };
+    }
+    props.setProperty(PROP_KEYS.REMINDER_LAST_RUN, String(now.getTime()));
     const settings = readSettings_();
     const selected = selectReminders_(listPendingRequests_(), now.getTime(), settings);
     const summary = { reminded: 0, escalated: 0, failed: 0 };

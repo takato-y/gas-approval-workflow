@@ -26,6 +26,8 @@ interface Settings {
   tokenTtlHours: number;
   remindAfterHours: number;
   maxReminders: number;
+  /** 空文字なら確認しない */
+  applicantDomain: string;
 }
 
 /** 承認ルールの1行 */

@@ -118,9 +118,20 @@ export function createFakeSpreadsheet(sheets: Record<string, Cell[][]>) {
 
 export interface SentMail { to: string; subject: string; body: string; name?: string }
 
+/** MailApp の偽物。failTo に入れた宛先への送信は例外にする（送信失敗の再現） */
 export function createFakeMailApp() {
   const sent: SentMail[] = [];
-  return { MailApp: { sendEmail(message: SentMail) { sent.push(message); } }, sent };
+  const failTo = new Set<string>();
+  return {
+    MailApp: {
+      sendEmail(message: SentMail) {
+        if (failTo.has(message.to)) throw new Error('fake: mail delivery failed');
+        sent.push(message);
+      },
+    },
+    sent,
+    failTo,
+  };
 }
 
 export function createFakeProperties(initial?: Record<string, string>) {

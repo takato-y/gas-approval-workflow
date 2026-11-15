@@ -35,6 +35,7 @@ const TOKEN_STATUS = Object.freeze({
 const PROP_KEYS = Object.freeze({
   SECRET: 'APPROVAL_HMAC_SECRET',
   WEBAPP_URL: 'WEBAPP_URL',
+  REMINDER_LAST_RUN: 'REMINDER_LAST_RUN_AT',
 });
 
 /** 申請フォームの選択肢 */
@@ -55,7 +56,7 @@ const LIMITS = Object.freeze({
 interface SettingDef {
   label: string;
   key: keyof Settings;
-  type: 'number' | 'email';
+  type: 'number' | 'email' | 'domain';
   defaultValue: number | string;
 }
 
@@ -67,6 +68,8 @@ const SETTING_DEFS: ReadonlyArray<SettingDef> = Object.freeze([
   { label: 'トークン有効時間', key: 'tokenTtlHours', type: 'number', defaultValue: 72 },
   { label: '督促開始時間', key: 'remindAfterHours', type: 'number', defaultValue: 24 },
   { label: '督促上限回数', key: 'maxReminders', type: 'number', defaultValue: 3 },
+  // 任意。指定すると、このドメイン以外のメールアドレスからの申請を受け付けない（社外アドレスの入力を防ぐ）
+  { label: '申請者ドメイン', key: 'applicantDomain', type: 'domain', defaultValue: '' },
 ] as SettingDef[]);
 
 /** エラーコード付きの Error を作る */
@@ -94,9 +97,17 @@ function normalizeEmail_(value: unknown): string {
   return String(value == null ? '' : value).trim().toLowerCase();
 }
 
-/** メールアドレスの形式を簡易に確認する */
+/**
+ * メールアドレスの形式を簡易に確認する。
+ * 先頭は英数字に限る（「=」「+」「-」「@」で始まる値はシートで数式として扱われるおそれがあるため）。
+ */
 function isValidEmail_(value: unknown): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
+  return /^[A-Za-z0-9][^\s@]*@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
+}
+
+/** ドメイン名の形式を簡易に確認する */
+function isValidDomain_(value: unknown): boolean {
+  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(String(value || ''));
 }
 
 /**
@@ -121,6 +132,10 @@ function parseSettings_(rows: CellValue[][]): Settings {
       const n = Number(raw);
       if (!Number.isFinite(n) || n <= 0) throw approvalError_('INVALID_SETTING', def.label + ' は正の数で指定してください');
       target[def.key] = n;
+    } else if (def.type === 'domain') {
+      const domain = String(raw).trim().toLowerCase().replace(/^@/, '');
+      if (!isValidDomain_(domain)) throw approvalError_('INVALID_SETTING', def.label + ' の形式が不正です');
+      target[def.key] = domain;
     } else {
       const email = normalizeEmail_(raw);
       if (!isValidEmail_(email)) throw approvalError_('INVALID_SETTING', def.label + ' の形式が不正です');

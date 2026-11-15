@@ -38,6 +38,8 @@ export interface Env {
   gas: LoadedGas;
   ctx: GasContext;
   sent: f.SentMail[];
+  /** ここに入れた宛先へのメール送信は失敗する */
+  mailFailTo: Set<string>;
   props: Map<string, string>;
   lock: { held: boolean; acquired: number; released: number };
   user: { active: string; effective: string };
@@ -86,7 +88,7 @@ export function createEnv(opt: EnvOptions = {}): Env {
   const timeTrigger = scriptApp.makeTrigger('sendReminders', 'time');
 
   return {
-    gas, ctx: gas.ctx, sent: mail.sent, props: props.store, lock: lock.state, user, scriptApp,
+    gas, ctx: gas.ctx, sent: mail.sent, mailFailTo: mail.failTo, props: props.store, lock: lock.state, user, scriptApp,
     formTrigger, timeTrigger,
     sheet: (name) => sheet.ss.sheet(name),
     audit: () => sheet.ss.sheet('監査ログ').body(),

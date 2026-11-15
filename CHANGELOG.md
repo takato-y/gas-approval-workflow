@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-15
+
+### Fixed
+
+- 排他制御の中の書き込みを、ロックの解放前に `SpreadsheetApp.flush()` で反映するように変更（公式リファレンスの推奨）。flush の失敗は成功として扱わず、利用者には「保存できたか確認できませんでした」と返し、管理者に照合を依頼する
+- 確定後に監査ログへ記録できなかった場合、実行ログに加えて、申請ID・操作名などを管理者にメールで知らせるように変更
+- 導入・運用手順書に、監査ログの記録漏れの補い方と、flush 失敗時の照合手順を追加
+- 自動テストを85件に追加（TC-082〜TC-085）
+
 ## [1.0.3] - 2026-11-15
 
 ### Fixed
@@ -64,7 +73,8 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.0...v1.0.1

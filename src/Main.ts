@@ -63,12 +63,24 @@ function getWebAppUrl_(): string {
   return url;
 }
 
-/** 排他制御のもとで fn を実行する。取れなければ BUSY */
+/**
+ * 排他制御のもとで fn を実行する。取れなければ BUSY。
+ * fn が成功したら、ロックを解放する前に SpreadsheetApp.flush() で書き込みを反映する
+ * （公式リファレンスの推奨。排他制御が効いている間に保留中の変更を確定させるため）。
+ * flush が失敗した場合は、書き込みが反映されたか分からないため成功として扱わず、FLUSH_FAILED を投げる。
+ */
 function withLock_<T>(fn: () => T): T {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(LOCK_WAIT_MS)) throw approvalError_('BUSY', '他の処理が実行中です');
   try {
-    return fn();
+    const result = fn();
+    try {
+      SpreadsheetApp.flush();
+    } catch (flushErr) {
+      console.error('書き込みの反映（flush）に失敗しました: ' + (errorCode_(flushErr) || 'UNEXPECTED'));
+      throw approvalError_('FLUSH_FAILED', '書き込みの反映を確認できませんでした');
+    }
+    return result;
   } finally {
     // 解放の失敗で、保存済みの処理結果を失敗に変えない（失敗は実行ログに残す）
     try {
@@ -91,8 +103,20 @@ function auditSafely_(now: Date, requestId: string, operation: string, actor: st
   try {
     audit_(now, requestId, operation, actor, result, detail);
   } catch (err) {
-    console.error('監査ログに記録できませんでした: ' + [requestId, operation, result, detail].join(' / ') +
-      ' / ' + (errorCode_(err) || 'UNEXPECTED'));
+    const code = errorCode_(err) || 'UNEXPECTED';
+    console.error('監査ログに記録できませんでした: ' + [requestId, operation, result, detail].join(' / ') + ' / ' + code);
+    // 欠けた行を後から補えるよう、管理者に知らせる（notifyAdminSafely_ は例外を投げない）
+    notifyAdminSafely_('監査ログに記録できませんでした ' + (requestId || '（申請IDなし）'), [
+      '処理は完了していますが、監査ログへの記録に失敗しました。導入・運用手順書の「障害時の対応」に従い、監査ログに手で追記してください。',
+      '',
+      '日時: ' + now.toISOString(),
+      '申請ID: ' + (requestId || '（なし）'),
+      '操作: ' + operation,
+      '実行者: ' + actor,
+      '結果: ' + result,
+      '詳細: ' + detail,
+      '理由コード: ' + code,
+    ]);
   }
 }
 
@@ -150,7 +174,13 @@ function handleFormSubmit_(e: unknown, now: Date): string | null {
   } catch (err) {
     const code = errorCode_(err);
     audit_(now, '', '受付', 'system', '失敗', code || 'UNEXPECTED');
-    notifyAdminSafely_('申請を受け付けられませんでした', ['理由コード: ' + (code || 'UNEXPECTED'), 'フォームの回答シートの最終行を確認してください。']);
+    notifyAdminSafely_('申請を受け付けられませんでした', [
+      '理由コード: ' + (code || 'UNEXPECTED'),
+      'フォームの回答シートの最終行を確認してください。',
+      ...(code === 'FLUSH_FAILED'
+        ? ['書き込みの反映を確認できませんでした。申請一覧に登録されている場合は、督促で承認依頼が送られます。重複して登録されていないかも確認してください。']
+        : []),
+    ]);
     if (!code) throw err;
     return null;
   }
@@ -277,6 +307,18 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
   } catch (err) {
     const code = errorCode_(err);
     if (!code) throw err;
+    if (code === 'FLUSH_FAILED') {
+      // 書き込みが反映されたか分からない。成功とは返さず、管理者に照合を依頼する。
+      // 反映されていれば同じリンクは「処理済み」、反映されていなければもう一度操作できる
+      auditSafely_(now, requestId, '保存確認', actorLabel, '失敗', code);
+      notifyAdminSafely_('承認・却下の保存を確認できませんでした ' + requestId, [
+        '書き込みの反映（flush）に失敗しました。申請一覧・承認トークン・監査ログを照合してください。',
+        '申請ID: ' + requestId,
+        '操作者: ' + actorLabel,
+        '操作: ' + String(decision),
+      ]);
+      return { ok: false, message: userMessageFor_(code) };
+    }
     audit_(now, requestId, '拒否', actorLabel, '失敗', code);
     return { ok: false, message: userMessageFor_(code) };
   }

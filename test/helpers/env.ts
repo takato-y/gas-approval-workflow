@@ -42,6 +42,10 @@ export interface Env {
   mailFailTo: Set<string>;
   props: Map<string, string>;
   lock: { held: boolean; acquired: number; released: number; failRelease: boolean };
+  /** flush の呼び出し回数と、失敗させる設定 */
+  flush: { calls: number; fail: boolean };
+  /** ロックの取得・flush・解放が起きた順 */
+  events: string[];
   user: { active: string; effective: string };
   scriptApp: ReturnType<typeof f.createFakeScriptApp>;
   formTrigger: f.FakeTrigger;
@@ -60,7 +64,8 @@ export interface Env {
 export function createEnv(opt: EnvOptions = {}): Env {
   const user = { active: '', effective: 'admin@example.com' };
   const mail = f.createFakeMailApp();
-  const lock = f.createFakeLock();
+  const events: string[] = [];
+  const lock = f.createFakeLock(events);
   const scriptApp = f.createFakeScriptApp();
   const initialProps: Record<string, string> = {};
   if (opt.secret !== null) initialProps.APPROVAL_HMAC_SECRET = opt.secret || TEST_SECRET;
@@ -76,7 +81,7 @@ export function createEnv(opt: EnvOptions = {}): Env {
     設定: opt.settingsRows || SETTINGS_ROWS,
     承認トークン: [headers['承認トークン'].slice()],
     監査ログ: [headers['監査ログ'].slice()],
-  });
+  }, events);
 
   const gas = loadGas(Object.assign(
     { Utilities: f.createFakeUtilities() },
@@ -88,7 +93,7 @@ export function createEnv(opt: EnvOptions = {}): Env {
   const timeTrigger = scriptApp.makeTrigger('sendReminders', 'time');
 
   return {
-    gas, ctx: gas.ctx, sent: mail.sent, mailFailTo: mail.failTo, props: props.store, lock: lock.state, user, scriptApp,
+    gas, ctx: gas.ctx, sent: mail.sent, mailFailTo: mail.failTo, props: props.store, lock: lock.state, flush: sheet.flushState, events, user, scriptApp,
     formTrigger, timeTrigger,
     sheet: (name) => sheet.ss.sheet(name),
     audit: () => sheet.ss.sheet('監査ログ').body(),

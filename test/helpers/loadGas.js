@@ -21,6 +21,7 @@ const LOAD_ORDER = [
   'Repository.js',
   'Notifier.js',
   'Guard.js',
+  'View.js',
   'Main.js',
 ];
 

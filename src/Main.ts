@@ -209,7 +209,8 @@ function revokeTokenSafely_(tokenId: string, now: Date, request: ApprovalRequest
 /**
  * 排他制御の外で承認依頼を送れなかったとき、そのトークンを失効させる（受付・確定の後）。
  * 新たに排他制御を取り、withLock_ の解放前の flush で確定する。取れない・確定できない場合も処理は止めない
- * （残った「有効」の行は、次の督促で失効する）。
+ * （残った「有効」の行は、次の督促で失効する。督促回数が上限に達した申請は督促されないため、
+ * REVOKE_FAILED の照合依頼を受けた管理者が失効させる）。
  */
 function revokeUnsentToken_(attempt: IssueAttempt, now: Date, request: ApprovalRequest, step: number): void {
   if (!attempt.issued) return;

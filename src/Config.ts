@@ -1,5 +1,5 @@
 /**
- * Config.js
+ * Config.ts
  * 定数・設定値の読み取り・共通の小さな関数。
  *
  * GAS では全ファイルが同じグローバル空間で読み込まれる。
@@ -52,65 +52,72 @@ const LIMITS = Object.freeze({
   COMMENT_MAX_LENGTH: 500,
 });
 
+interface SettingDef {
+  label: string;
+  key: keyof Settings;
+  type: 'number' | 'email';
+  defaultValue: number | string;
+}
+
 /** 設定シートの項目名と内部名の対応・初期値 */
-const SETTING_DEFS = Object.freeze([
+const SETTING_DEFS: ReadonlyArray<SettingDef> = Object.freeze([
   { label: '多段承認しきい値', key: 'multiStepThreshold', type: 'number', defaultValue: 100000 },
   { label: '最終承認者メール', key: 'finalApprover', type: 'email', defaultValue: '' },
   { label: '管理者メール', key: 'adminEmail', type: 'email', defaultValue: '' },
   { label: 'トークン有効時間', key: 'tokenTtlHours', type: 'number', defaultValue: 72 },
   { label: '督促開始時間', key: 'remindAfterHours', type: 'number', defaultValue: 24 },
   { label: '督促上限回数', key: 'maxReminders', type: 'number', defaultValue: 3 },
-]);
+] as SettingDef[]);
 
-/**
- * エラーコード付きの Error を作る。
- * @param {string} code 機械で判定するためのコード
- * @param {string} [message] 人が読む説明
- * @return {Error}
- */
-function approvalError_(code, message) {
-  const error = new Error(message || code);
+/** エラーコード付きの Error を作る */
+function approvalError_(code: string, message?: string): ApprovalError {
+  const error = new Error(message || code) as ApprovalError;
   error.code = code;
   return error;
 }
 
+/** 捕まえた例外からエラーコードを取り出す。想定外の例外なら null */
+function errorCode_(err: unknown): string | null {
+  if (err && typeof err === 'object' && typeof (err as ApprovalError).code === 'string') return (err as ApprovalError).code;
+  return null;
+}
+
 /** メールアドレスを比較用に正規化する（前後の空白除去・小文字化） */
-function normalizeEmail_(value) {
+function normalizeEmail_(value: unknown): string {
   return String(value == null ? '' : value).trim().toLowerCase();
 }
 
 /** メールアドレスの形式を簡易に確認する */
-function isValidEmail_(value) {
+function isValidEmail_(value: unknown): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
 }
 
 /**
  * 設定シートの値（[項目, 値] の2次元配列・見出し行を除く）を設定オブジェクトにする。
  * 不正な値は初期値で補わず、エラーにする（誤った承認者へ回さないため）。
- * @param {Array<Array<*>>} rows
- * @return {Object}
  */
-function parseSettings_(rows) {
-  const byLabel = {};
+function parseSettings_(rows: CellValue[][]): Settings {
+  const byLabel: { [label: string]: CellValue } = {};
   (rows || []).forEach(function (row) {
     if (row && row[0] !== '' && row[0] != null) byLabel[String(row[0]).trim()] = row[1];
   });
-  const settings = {};
+  const settings = {} as { [K in keyof Settings]: Settings[K] };
   SETTING_DEFS.forEach(function (def) {
     const raw = Object.prototype.hasOwnProperty.call(byLabel, def.label) ? byLabel[def.label] : '';
+    const target = settings as unknown as { [key: string]: number | string };
     if (raw === '' || raw == null) {
       if (def.type === 'email') throw approvalError_('INVALID_SETTING', def.label + ' が未設定です');
-      settings[def.key] = def.defaultValue;
+      target[def.key] = def.defaultValue;
       return;
     }
     if (def.type === 'number') {
       const n = Number(raw);
       if (!Number.isFinite(n) || n <= 0) throw approvalError_('INVALID_SETTING', def.label + ' は正の数で指定してください');
-      settings[def.key] = n;
+      target[def.key] = n;
     } else {
       const email = normalizeEmail_(raw);
       if (!isValidEmail_(email)) throw approvalError_('INVALID_SETTING', def.label + ' の形式が不正です');
-      settings[def.key] = email;
+      target[def.key] = email;
     }
   });
   return settings;

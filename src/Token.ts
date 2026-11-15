@@ -1,5 +1,5 @@
 /**
- * Token.js
+ * Token.ts
  * 承認リンク用トークンの発行・検証。
  *
  * 形式: base64url(JSON の中身) + "." + base64url(HMAC-SHA256(中身, 鍵))
@@ -16,11 +16,8 @@ const TOKEN_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const REQUEST_ID_PATTERN = /^REQ-\d{8}-\d{4}$/;
 const SECRET_MIN_LENGTH = 32;
 
-/**
- * GAS の Utilities を使う暗号処理の窓口。
- * @return {{hmac: function(string, string): string, encode: function(string): string, decode: function(string): string}}
- */
-function gasCryptoAdapter_() {
+/** GAS の Utilities を使う暗号処理の窓口 */
+function gasCryptoAdapter_(): CryptoAdapter {
   return {
     hmac: function (message, secret) {
       return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(message, secret));
@@ -35,32 +32,19 @@ function gasCryptoAdapter_() {
 }
 
 /** 鍵が十分な長さかを確かめる（未設定のまま動かさない） */
-function assertSecret_(secret) {
+function assertSecret_(secret: unknown): asserts secret is string {
   if (typeof secret !== 'string' || secret.length < SECRET_MIN_LENGTH) {
     throw approvalError_('SECRET_NOT_CONFIGURED', '署名用の鍵が未設定または短すぎます');
   }
 }
 
-/**
- * トークンの中身を作る。
- * @param {string} tokenId 推測できない乱数（UUID）
- * @param {string} requestId
- * @param {number} step
- * @param {number} nowMs 発行時刻（ミリ秒）
- * @param {number} ttlHours 有効時間
- */
-function buildTokenClaims_(tokenId, requestId, step, nowMs, ttlHours) {
+/** トークンの中身を作る */
+function buildTokenClaims_(tokenId: string, requestId: string, step: number, nowMs: number, ttlHours: number): TokenClaims {
   return { v: TOKEN_FORMAT_VERSION, tid: tokenId, rid: requestId, step: step, exp: nowMs + Math.round(ttlHours * 3600 * 1000) };
 }
 
-/**
- * 中身に署名してトークン文字列にする。
- * @param {Object} claims buildTokenClaims_ の戻り値
- * @param {string} secret
- * @param {Object} cryptoAdapter
- * @return {string}
- */
-function signToken_(claims, secret, cryptoAdapter) {
+/** 中身に署名してトークン文字列にする */
+function signToken_(claims: TokenClaims, secret: unknown, cryptoAdapter: CryptoAdapter): string {
   assertSecret_(secret);
   validateClaims_(claims);
   const body = cryptoAdapter.encode(JSON.stringify(claims));
@@ -70,13 +54,8 @@ function signToken_(claims, secret, cryptoAdapter) {
 /**
  * トークンの形式・署名・有効期限を検証し、中身を返す。
  * 署名を先に確かめるため、有効期限を書き換えたトークンは署名不一致になる。
- * @param {string} token
- * @param {string} secret
- * @param {number} nowMs
- * @param {Object} cryptoAdapter
- * @return {{v: number, tid: string, rid: string, step: number, exp: number}}
  */
-function verifyToken_(token, secret, nowMs, cryptoAdapter) {
+function verifyToken_(token: unknown, secret: unknown, nowMs: number, cryptoAdapter: CryptoAdapter): TokenClaims {
   assertSecret_(secret);
   if (typeof token !== 'string' || token.length === 0 || token.length > TOKEN_MAX_LENGTH) {
     throw approvalError_('TOKEN_MALFORMED', 'トークンの形式が不正です');
@@ -89,7 +68,7 @@ function verifyToken_(token, secret, nowMs, cryptoAdapter) {
   if (!timingSafeEqual_(expected, parts[1])) {
     throw approvalError_('TOKEN_BAD_SIGNATURE', 'トークンの署名が一致しません');
   }
-  let claims;
+  let claims: unknown;
   try {
     claims = JSON.parse(cryptoAdapter.decode(parts[0]));
   } catch (e) {
@@ -101,23 +80,19 @@ function verifyToken_(token, secret, nowMs, cryptoAdapter) {
 }
 
 /** 中身の項目を確かめる */
-function validateClaims_(claims) {
-  const ok = claims && typeof claims === 'object' &&
-    claims.v === TOKEN_FORMAT_VERSION &&
-    typeof claims.tid === 'string' && TOKEN_ID_PATTERN.test(claims.tid) &&
-    typeof claims.rid === 'string' && REQUEST_ID_PATTERN.test(claims.rid) &&
-    (claims.step === 1 || claims.step === 2) &&
-    typeof claims.exp === 'number' && Number.isFinite(claims.exp);
+function validateClaims_(claims: unknown): asserts claims is TokenClaims {
+  const c = claims as TokenClaims;
+  const ok = !!c && typeof c === 'object' &&
+    c.v === TOKEN_FORMAT_VERSION &&
+    typeof c.tid === 'string' && TOKEN_ID_PATTERN.test(c.tid) &&
+    typeof c.rid === 'string' && REQUEST_ID_PATTERN.test(c.rid) &&
+    (c.step === 1 || c.step === 2) &&
+    typeof c.exp === 'number' && Number.isFinite(c.exp);
   if (!ok) throw approvalError_('TOKEN_MALFORMED', 'トークンの中身が不正です');
 }
 
-/**
- * 長さと内容を一定時間で比較する（比較時間の差から署名を推測されないようにする）。
- * @param {string} a
- * @param {string} b
- * @return {boolean}
- */
-function timingSafeEqual_(a, b) {
+/** 長さと内容を一定時間で比較する（比較時間の差から署名を推測されないようにする） */
+function timingSafeEqual_(a: string, b: string): boolean {
   const x = String(a);
   const y = String(b);
   // 比較回数は a（サーバーで計算した期待値）の長さだけで決まる
@@ -128,31 +103,24 @@ function timingSafeEqual_(a, b) {
   return diff === 0;
 }
 
-/**
- * サーバー側の記録とトークンの中身を照合する（1回限り・取り消し・取り違えの確認）。
- * @param {?{tokenId: string, requestId: string, step: number, approver: string,
- *           expiresAt: Date, status: string}} record 承認トークンシートの行。無ければ null
- * @param {Object} claims verifyToken_ の戻り値
- * @param {number} nowMs
- */
-function checkTokenRecord_(record, claims, nowMs) {
+/** サーバー側の記録とトークンの中身を照合する（1回限り・取り消し・取り違えの確認） */
+function checkTokenRecord_(record: TokenRecord | null | undefined, claims: TokenClaims, nowMs: number): asserts record is TokenRecord {
   if (!record) throw approvalError_('TOKEN_UNKNOWN', '発行記録の無いトークンです');
   if (record.status === TOKEN_STATUS.USED) throw approvalError_('TOKEN_USED', 'このリンクは使用済みです');
   if (record.status !== TOKEN_STATUS.ACTIVE) throw approvalError_('TOKEN_REVOKED', 'このリンクは無効になっています');
   if (record.requestId !== claims.rid || Number(record.step) !== claims.step) {
     throw approvalError_('TOKEN_MISMATCH', 'トークンと記録が一致しません');
   }
-  const expiresAt = record.expiresAt instanceof Date ? record.expiresAt.getTime() : Number(new Date(record.expiresAt));
+  const expiresAt = record.expiresAt instanceof Date ? record.expiresAt.getTime() : new Date(String(record.expiresAt)).getTime();
   if (!Number.isFinite(expiresAt) || nowMs >= expiresAt) throw approvalError_('TOKEN_EXPIRED', 'トークンの有効期限が切れています');
 }
 
 /**
  * 操作している人が、トークンを割り当てた承認者本人かを確かめる。
  * メールアドレスを取得できない場合は拒否する（確認できないものは通さない）。
- * @param {{approver: string}} record
- * @param {string} activeUserEmail Session.getActiveUser().getEmail() の値
+ * @return 正規化した操作者のメール
  */
-function checkApproverIdentity_(record, activeUserEmail) {
+function checkApproverIdentity_(record: Pick<TokenRecord, 'approver'>, activeUserEmail: unknown): string {
   const actor = normalizeEmail_(activeUserEmail);
   if (actor === '') throw approvalError_('IDENTITY_UNAVAILABLE', '利用者のメールアドレスを確認できません');
   if (actor !== normalizeEmail_(record.approver)) throw approvalError_('UNAUTHORIZED_APPROVER', '割り当てられた承認者ではありません');

@@ -7,6 +7,9 @@ coverage/
 .clasp.json
 .clasprc.json
 
+# ビルド出力（clasp はこのフォルダを push する）
+dist/
+
 # 図の描画確認用の出力
 docs/_render/
 

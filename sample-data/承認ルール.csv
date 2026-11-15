@@ -1,0 +1,4 @@
+部署,金額下限,金額上限,承認者メール,代理承認者メール
+開発部,0,50000,dev-lead@example.com,dev-sub@example.com
+*,0,50000,manager@example.com,manager-sub@example.com
+*,50000,,director@example.com,director-sub@example.com

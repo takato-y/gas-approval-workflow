@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DOCS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs');
-const ERR_ID = /ERR-\d{3}/g;
+const ERR_ID = /(?<![A-Za-z0-9_-])ERR-\d+(?![A-Za-z0-9_-])/g;
 
 function read(name: string): string {
   return fs.readFileSync(path.join(DOCS, name), 'utf8');
@@ -38,13 +38,13 @@ test('TC-086 詳細設計のエラーIDはすべて障害対応手順書の4章�
 
   const headings = new Set(
     chapter(runbook, 4).split('\n')
-      .map((l) => /^### (ERR-\d{3}) /.exec(l))
+      .map((l) => /^### (ERR-\d+) /.exec(l))
       .filter((m): m is RegExpExecArray => m !== null)
       .map((m) => m[1]),
   );
   const table = new Set(
     chapter(runbook, 7).split('\n')
-      .map((l) => /^\| (ERR-\d{3}) \|/.exec(l))
+      .map((l) => /^\| (ERR-\d+) \|/.exec(l))
       .filter((m): m is RegExpExecArray => m !== null)
       .map((m) => m[1]),
   );

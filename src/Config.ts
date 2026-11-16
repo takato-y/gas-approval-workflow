@@ -162,22 +162,25 @@ function parseSettings_(rows: CellValue[][]): Settings {
  * 表示の向きを変える文字・制御文字・行区切り・見えない文字
  * （\p{Cc}・\p{Cf}・\p{Default_Ignorable_Code_Point}・U+2028/2029）を空白にする。
  * メールの本文に行を足したり、表示の順序を入れ替えて見せかけたりできないようにするため。
+ * 異体字セレクタ（\p{Variation_Selector}）は残す（異体字の氏名や絵文字の表示を割らないため。単独で行や表示の順序は変えられない）。
  */
 function stripControlChars_(text: string): string {
-  return text.replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu, ' ');
+  return text.replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu, function (ch) {
+    return /\p{Variation_Selector}/u.test(ch) ? ch : ' ';
+  });
 }
 
 /**
  * 申請者・承認者が自由に書いた値の1行を、表示用に整える。
  * 制御文字・見えない文字を空白にし、全角空白を含む空白の連続を1つにまとめる
  * （空白を詰めて折り返し位置をずらし、見かけの行を作れないようにするため）。
- * URL の「://」を「[:]//」に、先頭の「www.」を「www[.]」に変え、メールソフトでリンクにならないようにする。
+ * URL の「://」を「[:]//」に、語の先頭の「www.」を「www[.]」に変え、メールソフトでリンクになりにくくする（「example.com」のような裸のドメインは対象外）。
  */
 function toFreeTextLine_(value: unknown): string {
   return stripControlChars_(String(value == null ? '' : value))
     .replace(/[\s\u3000]+/g, ' ')
     .replace(/:\/\//g, '[:]//')
-    .replace(/(^|[^\w.])www\./gi, '$1www[.]')
+    .replace(/(^|[^\w.])(www)\./gi, '$1$2[.]')
     .trim();
 }
 

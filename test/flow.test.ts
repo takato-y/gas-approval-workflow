@@ -315,13 +315,16 @@ test('TC-102 社員名簿の読み取り: 見出しの判定・重複・文字�
     ['not-an-email', '読み飛ばす'],
     ['line@example.com', '一行目\n二行目'],
     ['bidi@example.com', '社員\u202eB\u2066\u200b\u0085'], // 表示の向きを変える文字・C1 制御文字は空白
+    ['ivs@example.com', '葛\u{E0100}城 太郎'], // 異体字セレクタは残す
     ['num@example.com', 12345], // 文字列でないセルは氏名なし
     ['date@example.com', new Date('2026-01-01T00:00:00+09:00')],
   ]), {
     'staff@example.com': '営業部　社員01',
     'line@example.com': '一行目 二行目',
     'bidi@example.com': '社員 B',
+    'ivs@example.com': '葛\u{E0100}城 太郎',
   });
+  assert.equal(env.ctx.toFreeTextLine_('詳細は WWW.Example.com を参照'), '詳細は WWW[.]Example.com を参照', 'www の大文字・小文字は変えない');
   // 50文字で切る。サロゲートペア（𠮷）の片方だけを残さず、切った後の末尾の空白も残さない
   const cut = parse([['s@example.com', 'あ'.repeat(49) + '𠮷' + 'い'], ['t@example.com', 'x'.repeat(49) + ' y']]);
   assert.equal(cut['s@example.com'], 'あ'.repeat(49) + '𠮷');

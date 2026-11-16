@@ -47,11 +47,12 @@ function readBody_(name: string): CellValue[][] {
 
 /**
  * 社員名簿を読む。名簿は任意のシートなので、シートが無ければ空として扱う。
+ * 見出し行の判定は parseEmployeeNames_ が行う（見出しが無くても先頭の社員を落とさない）。
  */
 function readEmployeeNames_(): { [email: string]: string } {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET.EMPLOYEES);
   if (!sheet) return {};
-  return parseEmployeeNames_(sheet.getDataRange().getValues().slice(1) as CellValue[][]);
+  return parseEmployeeNames_(sheet.getDataRange().getValues() as CellValue[][]);
 }
 
 function readSettings_(): Settings {

@@ -158,22 +158,43 @@ function parseSettings_(rows: CellValue[][]): Settings {
 }
 
 /**
- * 社員名簿の値（[メールアドレス, 氏名] の2次元配列・見出し行を除く）を「メールアドレス → 氏名」にする。
+ * 表示の向きを変える文字・制御文字・行区切り（\p{Cc}・\p{Cf}・U+2028/2029）を空白にする。
+ * メールの本文に行を足したり、表示の順序を入れ替えて見せかけたりできないようにするため。
+ */
+function stripControlChars_(text: string): string {
+  return text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ');
+}
+
+/** 1行で表示する値にする（制御文字を空白にし、全角空白以外の連続する空白を1つにまとめる） */
+function toDisplayLine_(value: unknown): string {
+  return stripControlChars_(String(value == null ? '' : value)).replace(/[^\S\u3000]+/g, ' ').trim();
+}
+
+/** 文字（コードポイント）の数で切る。サロゲートペアの片方だけを残さない */
+function truncateChars_(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length > max ? chars.slice(0, max).join('') : text;
+}
+
+/**
+ * 社員名簿の値（[メールアドレス, 氏名] の2次元配列）を「メールアドレス → 氏名」にする。
+ * 1行目は、A列がメールアドレスの形でなければ見出しとして読み飛ばす（見出しの書き忘れで先頭の社員を落とさないため）。
  * 氏名は表示だけに使い、本人の確認には使わない（本人の確認はフォームの「確認済み」のメールアドレスで行う）。
- * メールアドレスが不正な行・氏名が空の行は読み飛ばす。同じメールアドレスが複数あるときは、上の行を使う。
- * 氏名の改行・制御文字は空白にする（メールの本文の行を増やせないようにするため）。
+ * - メールアドレスが不正な行は読み飛ばす
+ * - 同じメールアドレスが複数あるときは、いちばん上の行だけを使う（その行の氏名が空なら氏名なし）
+ * - 氏名は文字列のセルだけを使う（数値・日付のセルは氏名なし）。制御文字・表示の向きを変える文字は空白にし、50文字で切る
  */
 function parseEmployeeNames_(rows: CellValue[][]): { [email: string]: string } {
   const names: { [email: string]: string } = {};
+  const seen: { [email: string]: boolean } = {};
   (rows || []).forEach(function (row) {
     if (!row) return;
     const email = normalizeEmail_(row[0]);
-    if (!isValidEmail_(email) || Object.prototype.hasOwnProperty.call(names, email)) return;
-    const name = String(row[1] == null ? '' : row[1])
-      .replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, LIMITS.EMPLOYEE_NAME_MAX_LENGTH);
+    if (!isValidEmail_(email)) return; // 見出し行・不正な行
+    if (seen[email]) return;
+    seen[email] = true;
+    if (typeof row[1] !== 'string') return;
+    const name = truncateChars_(toDisplayLine_(row[1]), LIMITS.EMPLOYEE_NAME_MAX_LENGTH).trim();
     if (name) names[email] = name;
   });
   return names;

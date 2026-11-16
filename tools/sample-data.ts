@@ -16,6 +16,7 @@ export const HEADERS = {
   audit: ['日時', '申請ID', '操作', '実行者', '結果', '詳細'],
   rules: ['部署', '金額下限', '金額上限', '承認者メール', '代理承認者メール'],
   settings: ['項目', '値'],
+  employees: ['メールアドレス', '氏名'],
 } as const;
 
 export const DEPARTMENTS = ['総務部', '営業部', '開発部', '製造部', '経理部'] as const;
@@ -88,6 +89,21 @@ export interface FormOptions {
   withInvalid: boolean;
 }
 
+/**
+ * 社員名簿のサンプル行を作る。人名は使わず「部署 社員NN」の役割名にする。
+ * フォームの回答のサンプルに出てくる申請者（各部署の staff01〜20）を、すべて載せる。
+ */
+export function employeeRows(): Row[] {
+  const rows: Row[] = [];
+  for (const dept of DEPARTMENTS) {
+    for (let n = 1; n <= 20; n++) {
+      const nn = String(n).padStart(2, '0');
+      rows.push(['staff' + nn + '.' + DEPT_CODE[dept] + '@example.com', dept + ' 社員' + nn]);
+    }
+  }
+  return rows;
+}
+
 /** フォームの回答のサンプル行を作る */
 export function formRows(opt: FormOptions): Row[] {
   const rand = createRandom(opt.seed);
@@ -140,5 +156,6 @@ export function buildSampleFiles(opt: SampleOptions): Record<string, string> {
     '申請一覧.csv': toCsv(HEADERS.requests, [], opt.bom),
     '承認トークン.csv': toCsv(HEADERS.tokens, [], opt.bom),
     '監査ログ.csv': toCsv(HEADERS.audit, [], opt.bom),
+    '社員名簿.csv': toCsv(HEADERS.employees, employeeRows(), opt.bom),
   };
 }

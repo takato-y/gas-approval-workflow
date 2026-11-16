@@ -24,17 +24,25 @@ function formatDateTime_(date: Date): string {
   }
 }
 
-/** 申請内容の共通部分 */
+/**
+ * 申請内容の共通部分。
+ * 申請者が自由に書く欄（品目・内容、理由）で、偽の「申請者:」の行や偽の案内・リンクを本文に足せないようにする。
+ * - 品目・内容は1行にする（改行・制御文字は空白）
+ * - 理由は最後に置き、申請者の入力であることを示したうえで、各行の先頭に「> 」を付ける
+ */
 function describeRequest_(request: ApprovalRequest): string {
+  const reasonLines = String(request.reason == null ? '' : request.reason)
+    .split(/\r\n|\r|\n|\u2028|\u2029/)
+    .map(function (line) { return '> ' + stripControlChars_(line).trimEnd(); });
   return [
     '申請ID: ' + request.id,
     '申請者: ' + applicantLabel_(request),
     '部署: ' + request.department,
     '申請区分: ' + request.category,
-    '品目・内容: ' + request.item,
+    '品目・内容: ' + toDisplayLine_(request.item),
     '金額: ' + formatYen_(request.amount),
-    '理由: ' + request.reason,
-  ].join('\n');
+    '理由（申請者の入力。各行の先頭に「> 」を付けています）:',
+  ].concat(reasonLines).join('\n');
 }
 
 /** 承認依頼メール */

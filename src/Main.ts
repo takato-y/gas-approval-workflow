@@ -129,16 +129,25 @@ function auditSafely_(now: Date, requestId: string, operation: string, actor: st
 }
 
 /**
- * 社員名簿から申請者の氏名を引いて、表示用に付けた写しを返す（シートには書かない）。
- * 名簿が読めない場合も、例外を投げずにメールアドレスだけの表示にする（通知・画面を止めないため）。
+ * 社員名簿を読む。読めない場合も例外を投げず、空として扱う（通知・画面を止めないため）。
+ * 実行ログにはエラーコードだけを残し、名簿の中身は書かない。
  */
-function withApplicantName_(request: ApprovalRequest): ApprovalRequest {
-  let name = '';
+function readEmployeeNamesSafely_(): { [email: string]: string } {
   try {
-    name = readEmployeeNames_()[normalizeEmail_(request.applicant)] || '';
+    return readEmployeeNames_();
   } catch (err) {
     console.error('社員名簿を読めませんでした: ' + (errorCode_(err) || 'UNEXPECTED'));
+    return {};
   }
+}
+
+/**
+ * 申請者の氏名を付けた、表示用の写しを返す（シートには書かない）。名簿に無ければ元の申請をそのまま返す。
+ * @param names 読み取り済みの名簿（督促のように複数の申請を続けて扱うとき、名簿を1回だけ読むために渡す）。省略時はここで読む
+ */
+function withApplicantName_(request: ApprovalRequest, names?: { [email: string]: string }): ApprovalRequest {
+  const roster = names || readEmployeeNamesSafely_();
+  const name = Object.prototype.hasOwnProperty.call(roster, normalizeEmail_(request.applicant)) ? roster[normalizeEmail_(request.applicant)] : '';
   return name ? Object.assign({}, request, { applicantName: name }) : request;
 }
 
@@ -146,7 +155,7 @@ function withApplicantName_(request: ApprovalRequest): ApprovalRequest {
  * トークンを発行して承認トークンシートに記録し、送るメールを作る（送信はしない）。
  * URL・鍵を記録より先に確かめ、送れないリンクの行を作らない。
  */
-function issueToken_(request: ApprovalRequest, step: number, settings: Settings, now: Date, reminderCount: number): { tokenId: string; token: string; expiresAt: Date; mail: Mail } {
+function issueToken_(request: ApprovalRequest, step: number, settings: Settings, now: Date, reminderCount: number, names?: { [email: string]: string }): { tokenId: string; token: string; expiresAt: Date; mail: Mail } {
   const baseUrl = getWebAppUrl_();
   const secret = getSecret_();
   assertSecret_(secret);
@@ -156,7 +165,7 @@ function issueToken_(request: ApprovalRequest, step: number, settings: Settings,
   const expiresAt = new Date(claims.exp);
   appendTokenRecord_({ tokenId: claims.tid, requestId: request.id, step, approver, issuedAt: now, expiresAt });
   const link = baseUrl + '?t=' + encodeURIComponent(token);
-  const named = withApplicantName_(request);
+  const named = withApplicantName_(request, names);
   const mail = reminderCount
     ? buildReminderMail_(named, approver, link, expiresAt, reminderCount)
     : buildApprovalRequestMail_(named, approver, step, link, expiresAt);
@@ -491,6 +500,8 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
       const settings = readSettings_();
       props.setProperty(PROP_KEYS.REMINDER_LAST_RUN, String(now.getTime()));
       const selected = selectReminders_(listPendingRequests_(), now.getTime(), settings);
+      // 社員名簿は1回だけ読み、督促する申請すべてで使う（排他制御の時間を延ばさないため）
+      const names = selected.remind.length ? readEmployeeNamesSafely_() : {};
 
       selected.remind.forEach(function (item) {
         const r = item.request;
@@ -501,7 +512,7 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
           assertSecret_(getSecret_());
           // 古いリンクを失効させてから新しいリンクを作る（期限切れ対策と、出回るリンクを1本に保つため）
           revokeActiveTokens_(r.id);
-          const issued = issueToken_(r, r.currentStep, settings, now, count);
+          const issued = issueToken_(r, r.currentStep, settings, now, count, names);
           // トークン行と督促回数・最終通知日時を確定させてからメールを送る（届いたリンクが「発行記録なし」にならず、
           // 送った督促が次の見回りで重複しないように）。確定できない・送れない場合は申請一覧の行を戻し、
           // この申請の督促を失敗にする（最終通知日時が古いままのため次の見回りで再び督促する）

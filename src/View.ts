@@ -33,7 +33,7 @@ function renderMessagePage_(title: string, message: string): GoogleAppsScript.HT
 function buildDecisionView_(request: ApprovalRequest, step: number, token: string, nonce: string): DecisionView {
   return {
     id: request.id,
-    applicant: request.applicant,
+    applicant: applicantLabel_(request),
     department: request.department,
     category: request.category,
     item: request.item,

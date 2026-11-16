@@ -28,7 +28,7 @@ function formatDateTime_(date: Date): string {
 function describeRequest_(request: ApprovalRequest): string {
   return [
     '申請ID: ' + request.id,
-    '申請者: ' + request.applicant,
+    '申請者: ' + applicantLabel_(request),
     '部署: ' + request.department,
     '申請区分: ' + request.category,
     '品目・内容: ' + request.item,

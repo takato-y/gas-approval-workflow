@@ -300,3 +300,55 @@ test('TC-101 日時の書式や使用日時の表示形式の設定に失敗し�
   assert.equal(env.tokens()[0][TOKEN_STATUS_COL], '使用済み');
   assert.ok(!env.audit().some((r) => r[2] === 'トークン更新'), 'トークン更新の失敗として記録しない');
 });
+
+test('TC-102 社員名簿の読み取り: 大文字小文字をそろえ、不正なメールアドレス・空の氏名は読み飛ばし、重複は上の行を使い、改行は空白にする', () => {
+  const env = createEnv();
+  const names = env.ctx.parseEmployeeNames_([
+    ['Staff@Example.com', '  営業部　社員01 '],
+    ['staff@example.com', '別の氏名'],
+    ['not-an-email', '読み飛ばす'],
+    ['blank@example.com', '   '],
+    ['line@example.com', '一行目\n二行目'],
+    ['long@example.com', 'あ'.repeat(80)],
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(names)), {
+    'staff@example.com': '営業部 社員01',
+    'line@example.com': '一行目 二行目',
+    'long@example.com': 'あ'.repeat(50),
+  });
+});
+
+test('TC-103 社員名簿に氏名があれば、承認依頼・督促・結果のメールと確認画面に「氏名（メールアドレス）」で出す', () => {
+  const env = createEnv({ employeeRows: [['staff@example.com', '営業部 社員<01>']] });
+  env.submitForm(formRow(), T0);
+  assert.match(env.sent[0].body, /^申請者: 営業部 社員<01>（staff@example\.com）$/m, '承認依頼');
+  const token = env.tokenFor('manager@example.com');
+  const html = env.openAs('manager@example.com', token, later(1));
+  assert.ok(html.includes('営業部 社員&lt;01&gt;（staff@example.com）'), '確認画面はエスケープして出す');
+  env.user.active = '';
+  env.ctx.handleReminders_({ triggerUid: env.timeTrigger.getUniqueId(), year: 2026, hour: 9 }, later(24));
+  const reminder = env.sent.filter((m) => /督促/.test(m.subject)).pop();
+  assert.ok(reminder, '督促メールが送られる');
+  assert.match(reminder!.body, /^申請者: 営業部 社員<01>（staff@example\.com）$/m, '督促');
+  const res = env.decideAs('manager@example.com', env.tokenFor('manager@example.com'), 'approve', '', later(25));
+  assert.equal(res.ok, true);
+  assert.match(env.sent.slice(-1)[0].body, /^申請者: 営業部 社員<01>（staff@example\.com）$/m, '結果');
+  assert.equal(env.requests()[0][2], 'staff@example.com', '申請一覧にはメールアドレスだけを保存する');
+});
+
+test('TC-104 社員名簿が無い・名簿に無い・読めない場合は、メールアドレスだけを出し、処理は止めない', () => {
+  const none = createEnv();
+  none.submitForm(formRow(), T0);
+  assert.match(none.sent[0].body, /^申請者: staff@example\.com$/m, 'シートが無い');
+
+  const other = createEnv({ employeeRows: [['someone@example.com', '別の社員']] });
+  other.submitForm(formRow(), T0);
+  assert.match(other.sent[0].body, /^申請者: staff@example\.com$/m, '名簿に無い');
+
+  const broken = createEnv({ employeeRows: [['staff@example.com', '営業部 社員01']] });
+  const roster = broken.sheet('社員名簿');
+  roster.getDataRange = () => { throw new Error('fake: read failed'); };
+  const id = quietly(() => broken.submitForm(formRow(), T0));
+  assert.equal(id, 'REQ-20261115-0001');
+  assert.match(broken.sent[0].body, /^申請者: staff@example\.com$/m, '読めない');
+});

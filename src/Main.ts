@@ -129,6 +129,20 @@ function auditSafely_(now: Date, requestId: string, operation: string, actor: st
 }
 
 /**
+ * 社員名簿から申請者の氏名を引いて、表示用に付けた写しを返す（シートには書かない）。
+ * 名簿が読めない場合も、例外を投げずにメールアドレスだけの表示にする（通知・画面を止めないため）。
+ */
+function withApplicantName_(request: ApprovalRequest): ApprovalRequest {
+  let name = '';
+  try {
+    name = readEmployeeNames_()[normalizeEmail_(request.applicant)] || '';
+  } catch (err) {
+    console.error('社員名簿を読めませんでした: ' + (errorCode_(err) || 'UNEXPECTED'));
+  }
+  return name ? Object.assign({}, request, { applicantName: name }) : request;
+}
+
+/**
  * トークンを発行して承認トークンシートに記録し、送るメールを作る（送信はしない）。
  * URL・鍵を記録より先に確かめ、送れないリンクの行を作らない。
  */
@@ -142,9 +156,10 @@ function issueToken_(request: ApprovalRequest, step: number, settings: Settings,
   const expiresAt = new Date(claims.exp);
   appendTokenRecord_({ tokenId: claims.tid, requestId: request.id, step, approver, issuedAt: now, expiresAt });
   const link = baseUrl + '?t=' + encodeURIComponent(token);
+  const named = withApplicantName_(request);
   const mail = reminderCount
-    ? buildReminderMail_(request, approver, link, expiresAt, reminderCount)
-    : buildApprovalRequestMail_(request, approver, step, link, expiresAt);
+    ? buildReminderMail_(named, approver, link, expiresAt, reminderCount)
+    : buildApprovalRequestMail_(named, approver, step, link, expiresAt);
   return { tokenId: claims.tid, token, expiresAt, mail };
 }
 
@@ -372,7 +387,7 @@ function renderDecisionView_(token: unknown, activeUserEmail: unknown, now: Date
   try {
     const c = loadDecisionContext_(token, activeUserEmail, now);
     const nonce = createConfirmNonce_(c.claims.tid, c.actor, now.getTime(), getSecret_(), gasCryptoAdapter_());
-    return renderDecisionPage_(c.found.request, c.claims.step, String(token), nonce);
+    return renderDecisionPage_(withApplicantName_(c.found.request), c.claims.step, String(token), nonce);
   } catch (err) {
     const code = errorCode_(err);
     if (!code) throw err;
@@ -431,7 +446,7 @@ function handleDecision_(token: unknown, nonce: unknown, decision: unknown, comm
       if (!sent) revokeUnsentToken_(attempt, now, done.updated, done.next.nextStep || done.updated.currentStep);
       return { ok: true, message: decidedLabel + (sent ? '次の承認者に回しました。' : '次の承認者への通知に失敗したため、管理者に連絡しました。') };
     }
-    const sent = notifySafely_(now, requestId, function () { sendMail_(buildResultMail_(done.updated, done.next.status, note)); });
+    const sent = notifySafely_(now, requestId, function () { sendMail_(buildResultMail_(withApplicantName_(done.updated), done.next.status, note)); });
     return { ok: true, message: decidedLabel + (sent ? '申請者に通知しました。' : '申請者への通知に失敗したため、管理者に連絡しました。') };
   } catch (err) {
     const code = errorCode_(err);

@@ -25,6 +25,7 @@ const SHEET = Object.freeze({
   SETTINGS: '設定',
   TOKENS: '承認トークン',
   AUDIT: '監査ログ',
+  EMPLOYEES: '社員名簿',
 });
 
 /** 申請の状態 */
@@ -61,6 +62,7 @@ const LIMITS = Object.freeze({
   ITEM_MAX_LENGTH: 200,
   REASON_MAX_LENGTH: 500,
   COMMENT_MAX_LENGTH: 500,
+  EMPLOYEE_NAME_MAX_LENGTH: 50,
 });
 
 interface SettingDef {
@@ -153,4 +155,31 @@ function parseSettings_(rows: CellValue[][]): Settings {
     }
   });
   return settings;
+}
+
+/**
+ * 社員名簿の値（[メールアドレス, 氏名] の2次元配列・見出し行を除く）を「メールアドレス → 氏名」にする。
+ * 氏名は表示だけに使い、本人の確認には使わない（本人の確認はフォームの「確認済み」のメールアドレスで行う）。
+ * メールアドレスが不正な行・氏名が空の行は読み飛ばす。同じメールアドレスが複数あるときは、上の行を使う。
+ * 氏名の改行・制御文字は空白にする（メールの本文の行を増やせないようにするため）。
+ */
+function parseEmployeeNames_(rows: CellValue[][]): { [email: string]: string } {
+  const names: { [email: string]: string } = {};
+  (rows || []).forEach(function (row) {
+    if (!row) return;
+    const email = normalizeEmail_(row[0]);
+    if (!isValidEmail_(email) || Object.prototype.hasOwnProperty.call(names, email)) return;
+    const name = String(row[1] == null ? '' : row[1])
+      .replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, LIMITS.EMPLOYEE_NAME_MAX_LENGTH);
+    if (name) names[email] = name;
+  });
+  return names;
+}
+
+/** 申請者の表示（社員名簿に氏名があれば「氏名（メールアドレス）」、なければメールアドレスだけ） */
+function applicantLabel_(request: Pick<ApprovalRequest, 'applicant' | 'applicantName'>): string {
+  return request.applicantName ? request.applicantName + '（' + request.applicant + '）' : request.applicant;
 }

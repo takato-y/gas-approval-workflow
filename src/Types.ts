@@ -58,6 +58,8 @@ interface ApprovalRequest extends FormInput {
   totalSteps: number;
   route: RouteStep[];
   lastNotifiedAt: Date | string;
+  /** 社員名簿から引いた氏名（表示用。シートには保存しない。名簿にない場合は持たない） */
+  applicantName?: string;
   reminderCount: number;
   updatedAt: Date | string;
 }

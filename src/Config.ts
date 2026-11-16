@@ -7,7 +7,6 @@
  * 公開を意図しない関数はすべて末尾に `_` を付ける。
  */
 
-/** シート名 */
 /**
  * 日時の表示の書式。メール・管理者への知らせ（Utilities.formatDate の書式）と、
  * シートのセルの表示形式（setNumberFormat の書式）で、同じ見た目にそろえる。
@@ -18,6 +17,7 @@ const DATETIME_FORMAT = Object.freeze({
   CELL: 'yyyy/mm/dd hh:mm:ss',
 });
 
+/** シート名 */
 const SHEET = Object.freeze({
   FORM: 'フォームの回答 1',
   REQUESTS: '申請一覧',

@@ -12,6 +12,12 @@ const later = (h: number) => new Date(T0.getTime() + h * 3600 * 1000);
 const COL = { STATUS: 8, STEP: 9 };
 const TOKEN_STATUS_COL = 7;
 const lastAudit = (env: Env) => env.audit().slice(-1)[0];
+/** console.error を一時的に黙らせて fn を実行する */
+function quietly<T>(fn: () => T): T {
+  const saved = console.error;
+  console.error = () => {};
+  try { return fn(); } finally { console.error = saved; }
+}
 
 test('TC-032 申請受付: 申請一覧に登録し、1段目の承認者にリンク付きメールを送る', () => {
   const env = createEnv();
@@ -266,7 +272,31 @@ test('TC-100 使用したトークンの「使用日時」のセルは、日時�
   const res = env.decideAs('manager@example.com', env.tokenFor('manager@example.com'), 'approve', '', later(2));
   assert.equal(res.ok, true);
   const sheet = env.sheet('承認トークン');
-  assert.ok(env.tokens()[0][6] instanceof Date || typeof env.tokens()[0][6] === 'object', '値は日時のまま書く');
+  const usedAt = env.tokens()[0][6] as Date;
+  assert.ok(Object.prototype.toString.call(usedAt) === '[object Date]' && usedAt.getTime() === later(2).getTime(), '値は日時のまま書く');
   // 承認トークンの2行目（データの1行目）の G 列（使用日時）
   assert.equal(sheet.formats.get('2,7'), 'yyyy/mm/dd hh:mm:ss');
+});
+
+test('TC-101 日時の書式や使用日時の表示形式の設定に失敗しても、確定と記録を失敗にしない', () => {
+  // 書式にできないときは ISO 8601 の形に戻し、例外を投げない
+  const env0 = createEnv();
+  const utils = env0.ctx.Utilities as { formatDate: unknown };
+  utils.formatDate = () => { throw new Error('fake: formatDate failed'); };
+  assert.equal(env0.ctx.formatDateTime_(T0), T0.toISOString());
+
+  // 使用日時の表示形式の設定に失敗しても、承認は成功し、トークンは使用済みになり、失敗の記録は残さない
+  const env = createEnv();
+  env.submitForm(formRow(), T0);
+  const sheet = env.sheet('承認トークン');
+  const getRange = sheet.getRange.bind(sheet);
+  sheet.getRange = (row: number, col: number, numRows?: number, numCols?: number) => {
+    const range = getRange(row, col, numRows, numCols);
+    range.setNumberFormat = () => { throw new Error('fake: setNumberFormat failed'); };
+    return range;
+  };
+  const res = quietly(() => env.decideAs('manager@example.com', env.tokenFor('manager@example.com'), 'approve', '', later(2)));
+  assert.equal(res.ok, true);
+  assert.equal(env.tokens()[0][TOKEN_STATUS_COL], '使用済み');
+  assert.ok(!env.audit().some((r) => r[2] === 'トークン更新'), 'トークン更新の失敗として記録しない');
 });

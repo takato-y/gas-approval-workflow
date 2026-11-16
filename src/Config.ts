@@ -63,6 +63,7 @@ const LIMITS = Object.freeze({
   REASON_MAX_LENGTH: 500,
   COMMENT_MAX_LENGTH: 500,
   EMPLOYEE_NAME_MAX_LENGTH: 50,
+  SUBJECT_ITEM_MAX_LENGTH: 40,
 });
 
 interface SettingDef {
@@ -158,11 +159,35 @@ function parseSettings_(rows: CellValue[][]): Settings {
 }
 
 /**
- * 表示の向きを変える文字・制御文字・行区切り（\p{Cc}・\p{Cf}・U+2028/2029）を空白にする。
+ * 表示の向きを変える文字・制御文字・行区切り・見えない文字
+ * （\p{Cc}・\p{Cf}・\p{Default_Ignorable_Code_Point}・U+2028/2029）を空白にする。
  * メールの本文に行を足したり、表示の順序を入れ替えて見せかけたりできないようにするため。
  */
 function stripControlChars_(text: string): string {
-  return text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ');
+  return text.replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu, ' ');
+}
+
+/**
+ * 申請者・承認者が自由に書いた値の1行を、表示用に整える。
+ * 制御文字・見えない文字を空白にし、全角空白を含む空白の連続を1つにまとめる
+ * （空白を詰めて折り返し位置をずらし、見かけの行を作れないようにするため）。
+ * URL の「://」を「[:]//」に、先頭の「www.」を「www[.]」に変え、メールソフトでリンクにならないようにする。
+ */
+function toFreeTextLine_(value: unknown): string {
+  return stripControlChars_(String(value == null ? '' : value))
+    .replace(/[\s\u3000]+/g, ' ')
+    .replace(/:\/\//g, '[:]//')
+    .replace(/(^|[^\w.])www\./gi, '$1www[.]')
+    .trim();
+}
+
+/**
+ * 自由に書いた複数行の値を、各行の先頭に「> 」を付けた行の配列にする（メール本文で、本物の行と区別するため）。
+ */
+function quoteFreeText_(value: unknown): string[] {
+  return String(value == null ? '' : value)
+    .split(/\r\n|\r|\n|\u2028|\u2029/)
+    .map(function (line) { return ('> ' + toFreeTextLine_(line)).trimEnd(); });
 }
 
 /** 1行で表示する値にする（制御文字を空白にし、全角空白以外の連続する空白を1つにまとめる） */

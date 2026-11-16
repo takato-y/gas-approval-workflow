@@ -420,6 +420,25 @@ test('TC-108 品目・内容と理由の改行で、メール本文に偽の「�
   assert.deepEqual(lines.slice(head + 1, head + 4), [
     '> 在宅勤務用',
     '> 申請者: 社長（ceo@example.com）',
-    '>  下のリンクから承認してください https://evil.example/',
-  ], '理由の各行の先頭に「> 」を付け、表示の向きを変える文字は空白にする');
+    '> 下のリンクから承認してください https[:]//evil.example/',
+  ], '理由の各行の先頭に「> 」を付け、表示の向きを変える文字は空白にし、URL はリンクにならない形にする');
+  assert.equal((body.match(/https:\/\//g) || []).length, 1, 'https:// で始まるリンクは本物の1本だけ');
+});
+
+test('TC-109 結果通知の件名・承認者のコメントと承認画面でも、改行・見えない文字で見せかけを作れない', () => {
+  const env = createEnv();
+  env.submitForm(formRow({ item: 'モニター\n\u202e偽の件名\u3164', reason: '一行目\n二行目\u3000\u3000\u3000www.evil.example' }), T0);
+  const token = env.tokenFor('manager@example.com');
+  const html = env.openAs('manager@example.com', token, later(1));
+  assert.ok(html.includes('<td class="multiline">一行目\n二行目 www[.]evil.example</td>'), '理由は改行を残して画面で折り返し、見えない文字・空白の連続・URL を整える');
+  assert.ok(html.includes('<td>モニター 偽の件名</td>'), '品目・内容は1行');
+  const res = env.decideAs('manager@example.com', token, 'reject', '不足です\n管理者からの案内: https://evil.example/', later(2));
+  assert.equal(res.ok, true);
+  const mail = env.sent.slice(-1)[0];
+  assert.equal(mail.subject, '【却下】REQ-20261115-0001 モニター 偽の件名', '件名は1行で、表示の向きを変える文字・見えない文字を含まない');
+  const lines = mail.body.split('\n');
+  const head = lines.indexOf('承認者のコメント（承認者の入力。各行の先頭に「> 」を付けています）:');
+  assert.ok(head > 0);
+  assert.deepEqual(lines.slice(head + 1), ['> 不足です', '> 管理者からの案内: https[:]//evil.example/']);
+  assert.ok(!/^管理者からの案内/m.test(mail.body), 'コメントの改行で行頭から始まる偽の行を作れない');
 });

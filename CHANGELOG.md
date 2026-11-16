@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-11-16
+
+### Added
+
+- テスト仕様書 3章に、実際の Google 環境での確認の結果を記載した（確認の環境、確認できた項目・できなかった項目、確認の中で見つかった点）
+
+### Changed
+
+- README・要件定義・権限設計・導入・運用手順・障害対応手順書の「Google 環境では未実施」の記述を、確認の結果に合わせて更新した（主な流れは確認済み、2段階の承認などは未確認）
+- package.json・package-lock.json の版を 1.0.8 にそろえた
+
 ## [1.0.7] - 2026-11-16
 
 ### Changed
@@ -131,7 +142,8 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.7...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.8...HEAD
+[1.0.8]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.4...v1.0.5

@@ -251,7 +251,7 @@ function restoreRequestSafely_(rowNumber: number, original: ApprovalRequest, now
       '申請ID: ' + original.id,
       '操作: ' + operation,
       '承認段階: ' + original.currentStep + ' / ' + original.totalSteps,
-      '戻す値: 督促回数 ' + (Number(original.reminderCount) || 0) + ' ／ 最終通知日時 ' + String(original.lastNotifiedAt instanceof Date ? formatDateTime_(original.lastNotifiedAt) : original.lastNotifiedAt),
+      '戻す値: 督促回数 ' + (Number(original.reminderCount) || 0) + ' ／ 最終通知日時 ' + String(Object.prototype.toString.call(original.lastNotifiedAt) === '[object Date]' ? formatDateTime_(original.lastNotifiedAt as Date) : original.lastNotifiedAt),
       '理由コード: ' + code,
     ]);
   }

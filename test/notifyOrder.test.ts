@@ -184,6 +184,7 @@ test('TC-098 送信失敗後の戻し・失効に失敗したら、監査ログ�
   const n1 = adminNotices(rem, /申請の記録を戻せませんでした REQ-20261115-0001/);
   assert.equal(n1.length, 1);
   assert.match(n1[0].body, /督促回数/);
+  assert.match(n1[0].body, /^日時: \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/m, '日時はスクリプトのタイムゾーンの形で書く（TC-099）');
   assert.doesNotMatch(n1[0].body, /\?t=/, 'リンク（トークン）を載せない');
 
   // 管理者通知: 送信に失敗し、督促回数（上限＋1）の戻しにも失敗した

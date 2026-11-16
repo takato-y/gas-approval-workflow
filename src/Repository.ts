@@ -170,7 +170,15 @@ function findTokenRecord_(tokenId: string): { rowNumber: number; record: TokenRe
 }
 
 function markTokenUsed_(rowNumber: number, now: Date): void {
-  getSheet_(SHEET.TOKENS).getRange(rowNumber, TOKEN_COL.USED_AT + 1, 1, 2).setValues([[now, TOKEN_STATUS.USED]]);
+  const sheet = getSheet_(SHEET.TOKENS);
+  sheet.getRange(rowNumber, TOKEN_COL.USED_AT + 1, 1, 2).setValues([[now, TOKEN_STATUS.USED]]);
+  // 空欄のセルに日時を書くと日付だけの表示になることがあるため、発行日時・有効期限と同じ日時の表示にそろえる。
+  // 見た目だけの処理なので、失敗してもトークンの更新の失敗として扱わない
+  try {
+    sheet.getRange(rowNumber, TOKEN_COL.USED_AT + 1).setNumberFormat(DATETIME_FORMAT.CELL);
+  } catch (err) {
+    console.error('使用日時の表示形式を設定できませんでした: 行 ' + rowNumber);
+  }
 }
 
 /** 申請の有効なトークンをすべて失効させる（督促でリンクを再発行するとき） */

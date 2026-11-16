@@ -1,6 +1,6 @@
 /**
  * Notifier.ts
- * 通知メールの文面作成（純粋ロジック）と送信。
+ * 通知メールの文面作成（日時の書式だけ GAS の Utilities を使う。ほかは純粋ロジック）と送信。
  * 文面にトークン以外の秘密情報を含めない。トークンは承認者宛てのリンクにだけ入れる。
  */
 
@@ -9,6 +9,19 @@ const MAIL_SENDER_NAME = '経費・備品申請システム';
 /** 金額を「1,234円」の形にする */
 function formatYen_(amount: number): string {
   return String(Math.trunc(Number(amount))).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円';
+}
+
+/**
+ * 日時を、スクリプトのタイムゾーンで「2026/11/19 16:37:37」の形にする（シートの表示と同じ形）。
+ * 例外を投げない（失敗時の知らせの組み立てでも使うため）。書式にできなければ ISO 8601 の形に戻す。
+ */
+function formatDateTime_(date: Date): string {
+  try {
+    return Utilities.formatDate(date, Session.getScriptTimeZone(), DATETIME_FORMAT.TEXT);
+  } catch (err) {
+    // シートから読んだ値など、別の実行環境で作られた Date でも判定できるよう instanceof を使わない
+    return Object.prototype.toString.call(date) === '[object Date]' && !isNaN(date.getTime()) ? date.toISOString() : String(date);
+  }
 }
 
 /** 申請内容の共通部分 */
@@ -39,7 +52,7 @@ function buildApprovalRequestMail_(request: ApprovalRequest, approver: string, s
       'リンクを開いただけでは承認・却下されません。',
       link,
       '',
-      'このリンクはあなた専用で、1回だけ使えます。有効期限: ' + expiresAt.toISOString(),
+      'このリンクはあなた専用で、1回だけ使えます。有効期限: ' + formatDateTime_(expiresAt),
       'このメールを転送しないでください。',
     ].join('\n'),
   };

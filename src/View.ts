@@ -33,12 +33,13 @@ function renderMessagePage_(title: string, message: string): GoogleAppsScript.HT
 function buildDecisionView_(request: ApprovalRequest, step: number, token: string, nonce: string): DecisionView {
   return {
     id: request.id,
-    applicant: request.applicant,
+    applicant: applicantLabel_(request),
     department: request.department,
     category: request.category,
-    item: request.item,
+    item: toFreeTextLine_(request.item),
     amountText: formatYen_(request.amount),
-    reason: request.reason,
+    // 改行は残し（画面で折り返して表示）、各行の制御文字・見えない文字は空白にする
+    reason: String(request.reason == null ? '' : request.reason).split(/\r\n|\r|\n|\u2028|\u2029/).map(toFreeTextLine_).join('\n'),
     stepText: step + ' / ' + request.totalSteps,
     token,
     nonce,

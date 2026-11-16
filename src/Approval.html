@@ -49,6 +49,7 @@
     th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
     th { width: 32%; background: var(--head); font-weight: 600; }
     td.amount { font-weight: 700; font-size: 1.1rem; }
+    td.multiline { white-space: pre-wrap; }
     label { display: block; font-weight: 600; margin-bottom: 4px; }
     textarea {
       width: 100%;
@@ -100,7 +101,7 @@
       <tr><th scope="row">申請区分</th><td><?= view.category ?></td></tr>
       <tr><th scope="row">品目・内容</th><td><?= view.item ?></td></tr>
       <tr><th scope="row">金額</th><td class="amount"><?= view.amountText ?></td></tr>
-      <tr><th scope="row">理由</th><td><?= view.reason ?></td></tr>
+      <tr><th scope="row">理由</th><td class="multiline"><?= view.reason ?></td></tr>
       <tr><th scope="row">承認段階</th><td><?= view.stepText ?></td></tr>
     </table>
 

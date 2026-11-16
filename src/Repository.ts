@@ -22,6 +22,7 @@ const SHEET_HEADERS: Readonly<{ [sheet: string]: string[] }> = Object.freeze({
     '状態', '現在段階', '総段階', '承認経路', '最終通知日時', '督促回数', '更新日時'],
   承認トークン: ['トークンID', '申請ID', '段階', '承認者メール', '発行日時', '有効期限', '使用日時', '状態'],
   監査ログ: ['日時', '申請ID', '操作', '実行者', '結果', '詳細'],
+  社員名簿: ['メールアドレス', '氏名'],
 });
 
 /**
@@ -42,6 +43,16 @@ function getSheet_(name: string): GoogleAppsScript.Spreadsheet.Sheet {
 /** 見出し行を除いたデータを返す */
 function readBody_(name: string): CellValue[][] {
   return getSheet_(name).getDataRange().getValues().slice(1) as CellValue[][];
+}
+
+/**
+ * 社員名簿を読む。名簿は任意のシートなので、シートが無ければ空として扱う。
+ * 見出し行の判定は parseEmployeeNames_ が行う（見出しが無くても先頭の社員を落とさない）。
+ */
+function readEmployeeNames_(): { [email: string]: string } {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET.EMPLOYEES);
+  if (!sheet) return {};
+  return parseEmployeeNames_(sheet.getDataRange().getValues() as CellValue[][]);
 }
 
 function readSettings_(): Settings {

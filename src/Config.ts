@@ -25,6 +25,7 @@ const SHEET = Object.freeze({
   SETTINGS: '設定',
   TOKENS: '承認トークン',
   AUDIT: '監査ログ',
+  EMPLOYEES: '社員名簿',
 });
 
 /** 申請の状態 */
@@ -61,6 +62,8 @@ const LIMITS = Object.freeze({
   ITEM_MAX_LENGTH: 200,
   REASON_MAX_LENGTH: 500,
   COMMENT_MAX_LENGTH: 500,
+  EMPLOYEE_NAME_MAX_LENGTH: 50,
+  SUBJECT_ITEM_MAX_LENGTH: 40,
 });
 
 interface SettingDef {
@@ -153,4 +156,79 @@ function parseSettings_(rows: CellValue[][]): Settings {
     }
   });
   return settings;
+}
+
+/**
+ * 表示の向きを変える文字・制御文字・行区切り・見えない文字
+ * （\p{Cc}・\p{Cf}・\p{Default_Ignorable_Code_Point}・U+2028/2029）を空白にする。
+ * メールの本文に行を足したり、表示の順序を入れ替えて見せかけたりできないようにするため。
+ * 異体字セレクタ（\p{Variation_Selector}）は残す（異体字の氏名や絵文字の表示を割らないため。単独で行や表示の順序は変えられない）。
+ */
+function stripControlChars_(text: string): string {
+  return text.replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu, function (ch) {
+    return /\p{Variation_Selector}/u.test(ch) ? ch : ' ';
+  });
+}
+
+/**
+ * 申請者・承認者が自由に書いた値の1行を、表示用に整える。
+ * 制御文字・見えない文字を空白にし、全角空白を含む空白の連続を1つにまとめる
+ * （空白を詰めて折り返し位置をずらし、見かけの行を作れないようにするため）。
+ * URL の「://」を「[:]//」に、語の先頭の「www.」を「www[.]」に変え、メールソフトでリンクになりにくくする（「example.com」のような裸のドメインは対象外）。
+ */
+function toFreeTextLine_(value: unknown): string {
+  return stripControlChars_(String(value == null ? '' : value))
+    .replace(/[\s\u3000]+/g, ' ')
+    .replace(/:\/\//g, '[:]//')
+    .replace(/(^|[^\w.])(www)\./gi, '$1$2[.]')
+    .trim();
+}
+
+/**
+ * 自由に書いた複数行の値を、各行の先頭に「> 」を付けた行の配列にする（メール本文で、本物の行と区別するため）。
+ */
+function quoteFreeText_(value: unknown): string[] {
+  return String(value == null ? '' : value)
+    .split(/\r\n|\r|\n|\u2028|\u2029/)
+    .map(function (line) { return ('> ' + toFreeTextLine_(line)).trimEnd(); });
+}
+
+/** 1行で表示する値にする（制御文字を空白にし、全角空白以外の連続する空白を1つにまとめる） */
+function toDisplayLine_(value: unknown): string {
+  return stripControlChars_(String(value == null ? '' : value)).replace(/[^\S\u3000]+/g, ' ').trim();
+}
+
+/** 文字（コードポイント）の数で切る。サロゲートペアの片方だけを残さない */
+function truncateChars_(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length > max ? chars.slice(0, max).join('') : text;
+}
+
+/**
+ * 社員名簿の値（[メールアドレス, 氏名] の2次元配列）を「メールアドレス → 氏名」にする。
+ * 1行目は、A列がメールアドレスの形でなければ見出しとして読み飛ばす（見出しの書き忘れで先頭の社員を落とさないため）。
+ * 氏名は表示だけに使い、本人の確認には使わない（本人の確認はフォームの「確認済み」のメールアドレスで行う）。
+ * - メールアドレスが不正な行は読み飛ばす
+ * - 同じメールアドレスが複数あるときは、いちばん上の行だけを使う（その行の氏名が空なら氏名なし）
+ * - 氏名は文字列のセルだけを使う（数値・日付のセルは氏名なし）。制御文字・表示の向きを変える文字は空白にし、50文字で切る
+ */
+function parseEmployeeNames_(rows: CellValue[][]): { [email: string]: string } {
+  const names: { [email: string]: string } = {};
+  const seen: { [email: string]: boolean } = {};
+  (rows || []).forEach(function (row) {
+    if (!row) return;
+    const email = normalizeEmail_(row[0]);
+    if (!isValidEmail_(email)) return; // 見出し行・不正な行
+    if (seen[email]) return;
+    seen[email] = true;
+    if (typeof row[1] !== 'string') return;
+    const name = truncateChars_(toDisplayLine_(row[1]), LIMITS.EMPLOYEE_NAME_MAX_LENGTH).trim();
+    if (name) names[email] = name;
+  });
+  return names;
+}
+
+/** 申請者の表示（社員名簿に氏名があれば「氏名（メールアドレス）」、なければメールアドレスだけ） */
+function applicantLabel_(request: Pick<ApprovalRequest, 'applicant' | 'applicantName'>): string {
+  return request.applicantName ? request.applicantName + '（' + request.applicant + '）' : request.applicant;
 }

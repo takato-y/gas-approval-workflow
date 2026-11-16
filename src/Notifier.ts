@@ -24,17 +24,22 @@ function formatDateTime_(date: Date): string {
   }
 }
 
-/** 申請内容の共通部分 */
+/**
+ * 申請内容の共通部分。
+ * 申請者が自由に書く欄（品目・内容、理由）で、偽の「申請者:」の行や偽の案内・リンクを本文に足せないようにする。
+ * - 品目・内容は1行にする（改行・制御文字・見えない文字は空白、URL の「://」と「www.」はリンクになりにくい形）
+ * - 理由は最後に置き、申請者の入力であることを示したうえで、各行の先頭に「> 」を付ける
+ */
 function describeRequest_(request: ApprovalRequest): string {
   return [
     '申請ID: ' + request.id,
-    '申請者: ' + request.applicant,
+    '申請者: ' + applicantLabel_(request),
     '部署: ' + request.department,
     '申請区分: ' + request.category,
-    '品目・内容: ' + request.item,
+    '品目・内容: ' + toFreeTextLine_(request.item),
     '金額: ' + formatYen_(request.amount),
-    '理由: ' + request.reason,
-  ].join('\n');
+    '理由（申請者の入力。各行の先頭に「> 」を付けています）:',
+  ].concat(quoteFreeText_(request.reason)).join('\n');
 }
 
 /** 承認依頼メール */
@@ -53,7 +58,7 @@ function buildApprovalRequestMail_(request: ApprovalRequest, approver: string, s
       link,
       '',
       'このリンクはあなた専用で、1回だけ使えます。有効期限: ' + formatDateTime_(expiresAt),
-      'このメールを転送しないでください。',
+      'このメールを転送しないでください。操作用のリンクは、上の1本だけです。',
     ].join('\n'),
   };
 }
@@ -61,8 +66,11 @@ function buildApprovalRequestMail_(request: ApprovalRequest, approver: string, s
 /** 申請者への結果通知メール */
 function buildResultMail_(request: ApprovalRequest, status: string, comment: string): Mail {
   const lines = ['あなたの申請は「' + status + '」になりました。', '', describeRequest_(request)];
-  if (comment) lines.push('', '承認者のコメント: ' + comment);
-  return { to: request.applicant, subject: '【' + status + '】' + request.id + ' ' + request.item, body: lines.join('\n') };
+  // 承認者のコメントも自由入力なので、理由と同じく各行の先頭に「> 」を付ける
+  if (comment) lines.push('', '承認者のコメント（承認者の入力。各行の先頭に「> 」を付けています）:', quoteFreeText_(comment).join('\n'));
+  // 件名には品目を1行・短くして入れる（件名で改行や表示の向きを変える文字を使わせない）
+  const subjectItem = truncateChars_(toFreeTextLine_(request.item), LIMITS.SUBJECT_ITEM_MAX_LENGTH);
+  return { to: request.applicant, subject: '【' + status + '】' + request.id + ' ' + subjectItem, body: lines.join('\n') };
 }
 
 /** 督促メール（新しいリンクを含む） */

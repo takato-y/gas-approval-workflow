@@ -32,6 +32,8 @@ export interface EnvOptions {
   secret?: string | null;
   webAppUrl?: string | null;
   settingsRows?: f.Cell[][];
+  /** 社員名簿の行（見出しを除く）。省略すると社員名簿のシートを作らない */
+  employeeRows?: f.Cell[][];
 }
 
 export interface Env {
@@ -81,6 +83,7 @@ export function createEnv(opt: EnvOptions = {}): Env {
     設定: opt.settingsRows || SETTINGS_ROWS,
     承認トークン: [headers['承認トークン'].slice()],
     監査ログ: [headers['監査ログ'].slice()],
+    ...(opt.employeeRows ? { 社員名簿: [headers['社員名簿'].slice(), ...opt.employeeRows] } : {}),
   }, events);
 
   const gas = loadGas(Object.assign(

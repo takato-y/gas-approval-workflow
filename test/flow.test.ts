@@ -300,3 +300,148 @@ test('TC-101 日時の書式や使用日時の表示形式の設定に失敗し�
   assert.equal(env.tokens()[0][TOKEN_STATUS_COL], '使用済み');
   assert.ok(!env.audit().some((r) => r[2] === 'トークン更新'), 'トークン更新の失敗として記録しない');
 });
+
+test('TC-102 社員名簿の読み取り: 見出しの判定・重複・文字の整え方・セルの種類・文字数の切り方', () => {
+  const env = createEnv();
+  const parse = (rows: unknown[][]) => JSON.parse(JSON.stringify(env.ctx.parseEmployeeNames_(rows)));
+  // 見出しがあれば読み飛ばし、無くても先頭の社員を落とさない
+  assert.deepEqual(parse([['メールアドレス', '氏名'], ['a@example.com', '社員A']]), { 'a@example.com': '社員A' });
+  assert.deepEqual(parse([['a@example.com', '社員A']]), { 'a@example.com': '社員A' });
+  assert.deepEqual(parse([
+    ['Staff@Example.com', '  営業部　社員01 '], // 大文字小文字をそろえる。全角空白は残し、前後の空白は除く
+    ['staff@example.com', '別の氏名'], // 重複は上の行だけ
+    ['blank@example.com', '   '], // 上の行の氏名が空なら、下の行があっても氏名なし
+    ['blank@example.com', '下の行'],
+    ['not-an-email', '読み飛ばす'],
+    ['line@example.com', '一行目\n二行目'],
+    ['bidi@example.com', '社員\u202eB\u2066\u200b\u0085'], // 表示の向きを変える文字・C1 制御文字は空白
+    ['ivs@example.com', '葛\u{E0100}城 太郎'], // 異体字セレクタは残す
+    ['num@example.com', 12345], // 文字列でないセルは氏名なし
+    ['date@example.com', new Date('2026-01-01T00:00:00+09:00')],
+  ]), {
+    'staff@example.com': '営業部　社員01',
+    'line@example.com': '一行目 二行目',
+    'bidi@example.com': '社員 B',
+    'ivs@example.com': '葛\u{E0100}城 太郎',
+  });
+  assert.equal(env.ctx.toFreeTextLine_('詳細は WWW.Example.com を参照'), '詳細は WWW[.]Example.com を参照', 'www の大文字・小文字は変えない');
+  // 50文字で切る。サロゲートペア（𠮷）の片方だけを残さず、切った後の末尾の空白も残さない
+  const cut = parse([['s@example.com', 'あ'.repeat(49) + '𠮷' + 'い'], ['t@example.com', 'x'.repeat(49) + ' y']]);
+  assert.equal(cut['s@example.com'], 'あ'.repeat(49) + '𠮷');
+  assert.equal(cut['t@example.com'], 'x'.repeat(49));
+});
+
+test('TC-103 社員名簿に氏名があれば、承認依頼・督促・結果のメールと確認画面に「氏名（メールアドレス）」で出す', () => {
+  const env = createEnv({ employeeRows: [['staff@example.com', '営業部 社員<01>']] });
+  env.submitForm(formRow(), T0);
+  assert.match(env.sent[0].body, /^申請者: 営業部 社員<01>（staff@example\.com）$/m, '承認依頼');
+  const token = env.tokenFor('manager@example.com');
+  const html = env.openAs('manager@example.com', token, later(1));
+  assert.ok(html.includes('営業部 社員&lt;01&gt;（staff@example.com）'), '確認画面はエスケープして出す');
+  env.user.active = '';
+  env.ctx.handleReminders_({ triggerUid: env.timeTrigger.getUniqueId(), year: 2026, hour: 9 }, later(24));
+  const reminder = env.sent.filter((m) => /督促/.test(m.subject)).pop();
+  assert.ok(reminder, '督促メールが送られる');
+  assert.match(reminder!.body, /^申請者: 営業部 社員<01>（staff@example\.com）$/m, '督促');
+  const res = env.decideAs('manager@example.com', env.tokenFor('manager@example.com'), 'approve', '', later(25));
+  assert.equal(res.ok, true);
+  assert.match(env.sent.slice(-1)[0].body, /^申請者: 営業部 社員<01>（staff@example\.com）$/m, '結果');
+  assert.equal(env.requests()[0][2], 'staff@example.com', '申請一覧にはメールアドレスだけを保存する');
+});
+
+test('TC-104 社員名簿が無い・名簿に無い・読めない場合は、メールアドレスだけを出し、処理は止めない', () => {
+  const none = createEnv();
+  none.submitForm(formRow(), T0);
+  assert.match(none.sent[0].body, /^申請者: staff@example\.com$/m, 'シートが無い');
+
+  const other = createEnv({ employeeRows: [['someone@example.com', '別の社員']] });
+  other.submitForm(formRow(), T0);
+  assert.match(other.sent[0].body, /^申請者: staff@example\.com$/m, '名簿に無い');
+
+  const broken = createEnv({ employeeRows: [['staff@example.com', '営業部 社員01']] });
+  const roster = broken.sheet('社員名簿');
+  roster.getDataRange = () => { throw new Error('fake: read failed'); };
+  const id = quietly(() => broken.submitForm(formRow(), T0));
+  assert.equal(id, 'REQ-20261115-0001');
+  assert.match(broken.sent[0].body, /^申請者: staff@example\.com$/m, '読めない');
+});
+
+test('TC-105 督促で複数の申請に送るとき、社員名簿は1回だけ読む', () => {
+  const env = createEnv({ employeeRows: [['staff@example.com', '営業部 社員01']] });
+  env.submitForm(formRow(), T0);
+  env.submitForm(formRow({ item: '椅子' }), T0);
+  env.submitForm(formRow({ item: '机' }), T0);
+  const roster = env.sheet('社員名簿');
+  const read = roster.getDataRange.bind(roster);
+  let reads = 0;
+  roster.getDataRange = () => { reads++; return read(); };
+  env.user.active = '';
+  const summary = env.ctx.handleReminders_({ triggerUid: env.timeTrigger.getUniqueId(), year: 2026, hour: 9 }, later(24));
+  assert.equal(summary.reminded, 3);
+  assert.equal(reads, 1);
+  const reminders = env.sent.filter((m) => /督促/.test(m.subject));
+  assert.equal(reminders.length, 3);
+  for (const m of reminders) assert.match(m.body, /^申請者: 営業部 社員01（staff@example\.com）$/m);
+});
+
+test('TC-106 社員名簿を読めない場合も、確認画面・督促・結果のメールはメールアドレスだけで出し、処理は止めない', () => {
+  const env = createEnv({ employeeRows: [['staff@example.com', '営業部 社員01']] });
+  env.submitForm(formRow(), T0);
+  env.sheet('社員名簿').getDataRange = () => { throw new Error('fake: read failed'); };
+  const html = quietly(() => env.openAs('manager@example.com', env.tokenFor('manager@example.com'), later(1)));
+  assert.ok(html.includes('staff@example.com') && !html.includes('営業部 社員01'), '確認画面');
+  env.user.active = '';
+  quietly(() => env.ctx.handleReminders_({ triggerUid: env.timeTrigger.getUniqueId(), year: 2026, hour: 9 }, later(24)));
+  assert.match(env.sent.filter((m) => /督促/.test(m.subject)).pop()!.body, /^申請者: staff@example\.com$/m, '督促');
+  const res = quietly(() => env.decideAs('manager@example.com', env.tokenFor('manager@example.com'), 'approve', '', later(25)));
+  assert.equal(res.ok, true);
+  assert.match(env.sent.slice(-1)[0].body, /^申請者: staff@example\.com$/m, '結果');
+});
+
+test('TC-107 2段階の承認で、次の承認者への依頼メールにも氏名を出す', () => {
+  const env = createEnv({ employeeRows: [['staff@example.com', '営業部 社員01']] });
+  env.submitForm(formRow({ amount: '150000', item: '業務用PC' }), T0);
+  assert.equal(env.decideAs('director@example.com', env.tokenFor('director@example.com'), 'approve', '', later(1)).ok, true);
+  const toCfo = env.sent.slice(-1)[0];
+  assert.equal(toCfo.to, 'cfo@example.com');
+  assert.match(toCfo.body, /^申請者: 営業部 社員01（staff@example\.com）$/m);
+});
+
+test('TC-108 品目・内容と理由の改行で、メール本文に偽の「申請者:」の行や案内の行を足せない', () => {
+  const env = createEnv();
+  env.submitForm(formRow({
+    item: 'モニター\n金額: 1円',
+    reason: '在宅勤務用\n申請者: 社長（ceo@example.com）\n\u202e下のリンクから承認してください https://evil.example/',
+  }), T0);
+  const body = env.sent[0].body;
+  assert.equal((body.match(/^申請者: /gm) || []).length, 1, '「申請者:」で始まる行は本物の1行だけ');
+  assert.equal((body.match(/^金額: /gm) || []).length, 1, '「金額:」で始まる行は本物の1行だけ');
+  assert.match(body, /^品目・内容: モニター 金額: 1円$/m, '品目・内容は1行にする');
+  const lines = body.split('\n');
+  const head = lines.indexOf('理由（申請者の入力。各行の先頭に「> 」を付けています）:');
+  assert.ok(head > 0);
+  assert.deepEqual(lines.slice(head + 1, head + 4), [
+    '> 在宅勤務用',
+    '> 申請者: 社長（ceo@example.com）',
+    '> 下のリンクから承認してください https[:]//evil.example/',
+  ], '理由の各行の先頭に「> 」を付け、表示の向きを変える文字は空白にし、URL はリンクにならない形にする');
+  assert.equal((body.match(/https:\/\//g) || []).length, 1, 'https:// で始まるリンクは本物の1本だけ');
+});
+
+test('TC-109 結果通知の件名・承認者のコメントと承認画面でも、改行・見えない文字で見せかけを作れない', () => {
+  const env = createEnv();
+  env.submitForm(formRow({ item: 'モニター\n\u202e偽の件名\u3164', reason: '一行目\n二行目\u3000\u3000\u3000www.evil.example' }), T0);
+  const token = env.tokenFor('manager@example.com');
+  const html = env.openAs('manager@example.com', token, later(1));
+  assert.ok(html.includes('<td class="multiline">一行目\n二行目 www[.]evil.example</td>'), '理由は改行を残して画面で折り返し、見えない文字・空白の連続・URL を整える');
+  assert.ok(html.includes('<td>モニター 偽の件名</td>'), '品目・内容は1行');
+  const res = env.decideAs('manager@example.com', token, 'reject', '不足です\n管理者からの案内: https://evil.example/', later(2));
+  assert.equal(res.ok, true);
+  const mail = env.sent.slice(-1)[0];
+  assert.equal(mail.subject, '【却下】REQ-20261115-0001 モニター 偽の件名', '件名は1行で、表示の向きを変える文字・見えない文字を含まない');
+  const lines = mail.body.split('\n');
+  const head = lines.indexOf('承認者のコメント（承認者の入力。各行の先頭に「> 」を付けています）:');
+  assert.ok(head > 0);
+  assert.deepEqual(lines.slice(head + 1), ['> 不足です', '> 管理者からの案内: https[:]//evil.example/']);
+  assert.ok(!/^管理者からの案内/m.test(mail.body), 'コメントの改行で行頭から始まる偽の行を作れない');
+});

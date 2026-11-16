@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { HEADERS, formRows, csvCell, toCsv, buildSampleFiles } from '../tools/sample-data.ts';
+import { HEADERS, formRows, employeeRows, csvCell, toCsv, buildSampleFiles } from '../tools/sample-data.ts';
 import { main } from '../tools/generate-sample-data.ts';
 import { loadGas } from './helpers/loadGas.ts';
 import { createEnv } from './helpers/env.ts';
@@ -38,6 +38,10 @@ test('TC-066 CSV の見出しは GAS 側のシート定義と一致する', () =
   assert.deepEqual([...HEADERS.requests], Array.from(gasHeaders['申請一覧']));
   assert.deepEqual([...HEADERS.tokens], Array.from(gasHeaders['承認トークン']));
   assert.deepEqual([...HEADERS.audit], Array.from(gasHeaders['監査ログ']));
+  assert.deepEqual([...HEADERS.employees], Array.from(gasHeaders['社員名簿']));
+  // 社員名簿のサンプルには、フォームの回答のサンプルに出てくる申請者がすべて載っている
+  const roster = new Set(employeeRows().map((r) => String(r[0])));
+  for (const r of formRows(base)) assert.ok(roster.has(String(r[1])), '名簿に無い申請者: ' + r[1]);
 });
 
 test('TC-067 CSV のエスケープ: 区切り・引用符・改行は引用符で囲み、数式になる先頭文字は無効化する', () => {
@@ -50,7 +54,7 @@ test('TC-067 CSV のエスケープ: 区切り・引用符・改行は引用符�
   assert.equal(toCsv(['a', 'b'], [[1, 'x']], true), '﻿a,b\r\n1,x\r\n');
 });
 
-test('TC-068 コマンド: 6つの CSV を出力し、メールアドレスは example.com だけ。不正な引数はエラー終了', () => {
+test('TC-068 コマンド: 7つの CSV を出力し、メールアドレスは example.com だけ。不正な引数はエラー終了', () => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'sample-data-'));
   const quiet = { log: console.log, error: console.error };
   console.log = () => {};

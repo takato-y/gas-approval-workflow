@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-16
+
+### Added
+
+- 申請者の氏名の表示（REQ-009）。任意の `社員名簿` シート（メールアドレス・氏名）に氏名があれば、承認依頼・督促・結果のメールと承認画面で、申請者を「氏名（メールアドレス）」で示す。氏名は表示だけに使い、本人の確認には使わない。名簿が無い・名簿に無い・読めない場合はメールアドレスだけを示す。督促では1回の実行で名簿を1回だけ読む（TC-102〜TC-107）
+- 社員名簿のサンプル（`sample-data/社員名簿.csv`。人名ではなく「部署 社員NN」の役割名）
+- 要件定義・基本設計（4.7 社員名簿、4.8 メール本文での申請者の入力の扱い）・詳細設計・権限設計・導入・運用手順に、社員名簿の扱いを追加した
+
+### Security
+
+- 申請者が書く「理由」の改行で、承認依頼などのメール本文に偽の「申請者:」の行や偽の案内・リンクの行を足せた問題を修正。理由と承認者のコメントは各行の先頭に「> 」を付け、品目・内容は1行にする（結果通知の件名も1行・40文字まで）。URL の「://」と「www.」を崩してリンクになりにくくし、制御文字・表示の向きを変える文字・見えない文字（異体字セレクタを除く）は空白にする。承認画面の品目・理由も同じ整え方にした（TC-108, TC-109）
+
+### Changed
+
+- テスト件数を109件に更新した（README・テスト仕様書・導入・運用手順）
+- package.json・package-lock.json の版を 1.1.0 にそろえた
+
 ## [1.0.9] - 2026-11-16
 
 ### Fixed
@@ -156,7 +173,8 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.9...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.9...v1.1.0
 [1.0.9]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.8...v1.0.9
 [1.0.8]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.6...v1.0.7

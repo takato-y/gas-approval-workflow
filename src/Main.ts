@@ -117,7 +117,7 @@ function auditSafely_(now: Date, requestId: string, operation: string, actor: st
     notifyAdminSafely_('監査ログに記録できませんでした ' + (requestId || '（申請IDなし）'), [
       '処理は完了していますが、監査ログへの記録に失敗しました。導入・運用手順書の「障害時の対応」に従い、監査ログに手で追記してください。',
       '',
-      '日時: ' + now.toISOString(),
+      '日時: ' + formatDateTime_(now),
       '申請ID: ' + (requestId || '（なし）'),
       '操作: ' + operation,
       '実行者: ' + actor,
@@ -186,7 +186,7 @@ function reportRevokeFailure_(now: Date, request: ApprovalRequest, step: number,
     'メールを送れなかったリンクの記録（承認トークン）を「失効」にできませんでした。導入・運用手順書の 4.2 に従って照合してください。',
     '承認トークンで、この申請・段階の行のうち発行日時が下の日時のものが「有効」なら「失効」に変えてください。',
     '',
-    '日時: ' + now.toISOString(),
+    '日時: ' + formatDateTime_(now),
     '申請ID: ' + request.id,
     '段階: ' + step,
     '操作: ' + operation,
@@ -247,11 +247,11 @@ function restoreRequestSafely_(rowNumber: number, original: ApprovalRequest, now
       operation + 'のメールを送れなかったため申請一覧の行を送信前の値に戻そうとしましたが、戻せませんでした。導入・運用手順書の 4.2 に従って照合してください。',
       '申請一覧のこの申請の督促回数・最終通知日時を、下の「戻す値」に直してください。',
       '',
-      '日時: ' + now.toISOString(),
+      '日時: ' + formatDateTime_(now),
       '申請ID: ' + original.id,
       '操作: ' + operation,
       '承認段階: ' + original.currentStep + ' / ' + original.totalSteps,
-      '戻す値: 督促回数 ' + (Number(original.reminderCount) || 0) + ' ／ 最終通知日時 ' + String(original.lastNotifiedAt instanceof Date ? original.lastNotifiedAt.toISOString() : original.lastNotifiedAt),
+      '戻す値: 督促回数 ' + (Number(original.reminderCount) || 0) + ' ／ 最終通知日時 ' + String(original.lastNotifiedAt instanceof Date ? formatDateTime_(original.lastNotifiedAt) : original.lastNotifiedAt),
       '理由コード: ' + code,
     ]);
   }
@@ -551,7 +551,7 @@ function handleReminders_(e: unknown, now: Date): { reminded: number; escalated:
       notifyAdminSafely_('督促の保存を確認できませんでした', [
         '書き込みの反映（flush）に失敗しました。督促・管理者通知のメールは、申請一覧と承認トークンの記録を確定してから送っています。',
         '反映されていない可能性があるのは、監査ログの督促・管理者通知の行と、送信に失敗した申請の督促回数・最終通知日時の戻しです。申請一覧・承認トークン・監査ログを照合してください。',
-        '日時: ' + now.toISOString(),
+        '日時: ' + formatDateTime_(now),
         '督促: ' + summary.reminded + '件 ／ 管理者通知: ' + summary.escalated + '件 ／ 失敗: ' + summary.failed + '件',
       ]);
     }

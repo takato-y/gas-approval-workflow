@@ -8,6 +8,16 @@
  */
 
 /** シート名 */
+/**
+ * 日時の表示の書式。メール・管理者への知らせ（Utilities.formatDate の書式）と、
+ * シートのセルの表示形式（setNumberFormat の書式）で、同じ見た目にそろえる。
+ * 時刻はスクリプトのタイムゾーン（appsscript.json の timeZone）で表す。
+ */
+const DATETIME_FORMAT = Object.freeze({
+  TEXT: 'yyyy/MM/dd HH:mm:ss',
+  CELL: 'yyyy/mm/dd hh:mm:ss',
+});
+
 const SHEET = Object.freeze({
   FORM: 'フォームの回答 1',
   REQUESTS: '申請一覧',

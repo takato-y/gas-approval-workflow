@@ -38,12 +38,15 @@ export function createFakeUtilities() {
     getUuid(): string {
       return crypto.randomUUID();
     },
-    /** 本プロジェクトで使う書式（yyyyMMdd）だけを再現する */
+    /** 本プロジェクトで使う書式（yyyyMMdd と yyyy/MM/dd HH:mm:ss）だけを再現する */
     formatDate(date: Date, timeZone: string, pattern: string): string {
-      if (pattern !== 'yyyyMMdd') throw new Error('fake formatDate: unsupported pattern ' + pattern);
-      const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+      if (pattern !== 'yyyyMMdd' && pattern !== 'yyyy/MM/dd HH:mm:ss') throw new Error('fake formatDate: unsupported pattern ' + pattern);
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+      }).formatToParts(date);
       const get = (t: string) => parts.find((p) => p.type === t)!.value;
-      return get('year') + get('month') + get('day');
+      if (pattern === 'yyyyMMdd') return get('year') + get('month') + get('day');
+      return get('year') + '/' + get('month') + '/' + get('day') + ' ' + get('hour') + ':' + get('minute') + ':' + get('second');
     },
   };
 }
@@ -54,12 +57,15 @@ export interface FakeRange {
   getValues(): Cell[][];
   setValues(values: Cell[][]): FakeRange;
   setValue(v: Cell): FakeRange;
+  setNumberFormat(format: string): FakeRange;
 }
 
 /** シート1枚の偽物。値は2次元配列で持つ（1行目が見出し） */
 export class FakeSheet {
   name: string;
   rows: Cell[][];
+  /** セルの表示形式（"行,列" → 書式）。setNumberFormat で設定したものだけを持つ */
+  formats = new Map<string, string>();
   constructor(name: string, rows: Cell[][]) {
     this.name = name;
     this.rows = rows.map((r) => r.slice());
@@ -96,6 +102,10 @@ export class FakeSheet {
         return range;
       },
       setValue(v) { return range.setValues([[v]]); },
+      setNumberFormat(format) {
+        for (let r = 0; r < numRows; r++) for (let c = 0; c < numCols; c++) sheet.formats.set((row + r) + ',' + (col + c), format);
+        return range;
+      },
     };
     return range;
   }

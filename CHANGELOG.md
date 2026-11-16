@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-11-16
+
+### Fixed
+
+- メールの有効期限と管理者への知らせの日時が、協定世界時の ISO 8601 の形（`2026-11-19T07:37:37.922Z`）で書かれていたのを、スクリプトのタイムゾーンの「yyyy/MM/dd HH:mm:ss」の形に修正（TC-099）
+- 承認トークンの「使用日時」が日付だけの表示になっていたのを、使用時にセルの表示形式を日時の形にするよう修正（TC-100）
+- いずれも Google 環境での確認（テスト仕様書 3.3）で見つかったもの。修正後の表示は Google 環境ではまだ確認していない
+
+### Changed
+
+- README の確認した範囲の文を整えた。テスト件数を100件に更新した（README・テスト仕様書・導入・運用手順）
+- package.json・package-lock.json の版を 1.0.9 にそろえた
+
 ## [1.0.8] - 2026-11-16
 
 ### Added
@@ -142,7 +155,8 @@
 - GAS のソースを JavaScript から TypeScript に移行し、`dist/` へビルドして clasp で送る構成に変更
 - 承認確認画面を、サーバー側で組み立てた HTML 文字列から HtmlService のテンプレートに変更
 
-[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.8...HEAD
+[Unreleased]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.9...HEAD
+[1.0.9]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.8...v1.0.9
 [1.0.8]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/takato-y/gas-approval-workflow/compare/v1.0.5...v1.0.6

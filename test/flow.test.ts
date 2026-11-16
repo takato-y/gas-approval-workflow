@@ -251,3 +251,22 @@ test('TC-048 初期設定: 管理者本人だけが実行でき、鍵は上書�
   assert.equal(handlers.filter((h) => h === 'onFormSubmit').length, 1);
   assert.deepEqual(lastAudit(env).slice(2, 5), ['初期設定', 'admin@example.com', '成功']);
 });
+
+test('TC-099 メールと管理者への知らせの日時は、スクリプトのタイムゾーンで「yyyy/MM/dd HH:mm:ss」の形にする', () => {
+  const env = createEnv();
+  env.submitForm(formRow(), T0);
+  // 有効期限は発行から72時間後（T0 = 2026-11-15 09:00 日本時間）
+  assert.match(env.sent[0].body, /有効期限: 2026\/11\/18 09:00:00$/m);
+  assert.doesNotMatch(env.sent[0].body, /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/, '協定世界時の ISO 8601 の形で書かない');
+});
+
+test('TC-100 使用したトークンの「使用日時」のセルは、日時の表示形式にする', () => {
+  const env = createEnv();
+  env.submitForm(formRow(), T0);
+  const res = env.decideAs('manager@example.com', env.tokenFor('manager@example.com'), 'approve', '', later(2));
+  assert.equal(res.ok, true);
+  const sheet = env.sheet('承認トークン');
+  assert.ok(env.tokens()[0][6] instanceof Date || typeof env.tokens()[0][6] === 'object', '値は日時のまま書く');
+  // 承認トークンの2行目（データの1行目）の G 列（使用日時）
+  assert.equal(sheet.formats.get('2,7'), 'yyyy/mm/dd hh:mm:ss');
+});
